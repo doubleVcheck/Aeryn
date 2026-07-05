@@ -2,16 +2,21 @@
 
 ZaneCode is the Zane AI workspace. It gives you one account-backed setup for chat, desktop, terminal, and coding CLIs.
 
-![ZaneChat](docs/assets/zanechat.png)
-
 ## What You Get
 
 - **ZaneChat**: web chat and local AI gateway.
-- **ZaneApp**: desktop app for coding sessions.
-- **ZaneCLI**: terminal UI through `zanecli` and `zanecode`.
-- **CLI wrappers**: run popular coding CLIs through your Zane models with commands like `zanecc`, `zanegpt`, `zaneoc`, `zaneh`, and `zanegrokcli`.
+<img width="1919" height="924" alt="image" src="https://github.com/user-attachments/assets/dd9b7569-28f9-4226-83d2-5fc99eb082d5" />
 
-![ZaneApp](docs/assets/zaneapp.png)
+- **ZaneApp**: desktop app for coding sessions.
+<img width="1920" height="1048" alt="image" src="https://github.com/user-attachments/assets/93001f18-b001-4874-9eb1-a40a970aba5c" />
+
+- **ZaneCLI**: terminal UI through `zanecli` and `zanecode`
+<img width="1908" height="951" alt="image" src="https://github.com/user-attachments/assets/d68f1d1b-cf6b-4ac3-8d0e-ff808342515a" />
+
+- **CLI wrappers**: run popular coding CLIs through your Zane models with commands like `zanecc`, `zanegpt`, `zaneoc`, `zaneh`, and `zanegrokcli`.
+Example from **zanegpt**:
+
+<img width="1913" height="413" alt="image" src="https://github.com/user-attachments/assets/ebe79d76-b176-437c-9275-2f26480222c9" />
 
 ## How It Works
 
@@ -59,8 +64,6 @@ zane models    # list models exposed by the local gateway
 zane use MODEL # set the default model for wrappers
 zane status    # show local bridge status
 ```
-
-![ZaneCLI](docs/assets/zanecli.png)
 
 ## Use Zane Models In Other CLIs
 
