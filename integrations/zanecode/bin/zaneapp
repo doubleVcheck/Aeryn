@@ -1,0 +1,257 @@
+#!/usr/bin/env node
+
+import * as childProcess from "node:child_process"
+import * as fs from "node:fs"
+import * as os from "node:os"
+import * as path from "node:path"
+import { fileURLToPath } from "node:url"
+
+const __filename = fileURLToPath(import.meta.url)
+const __dirname = path.dirname(__filename)
+const repoRoot = path.resolve(__dirname, "..")
+const desktopRoot = path.join(repoRoot, "packages", "desktop")
+const desktopOut = path.join(desktopRoot, "out")
+const electronBin = path.join(desktopRoot, "node_modules", ".bin", process.platform === "win32" ? "electron.cmd" : "electron")
+const zaneBridgeBin = path.resolve(repoRoot, "..", "zane-cli", "bin", "zane")
+const configDir = path.join(os.homedir(), ".config", "zane-cli")
+const configFile = path.join(configDir, "config.json")
+const credentialsFile = path.join(configDir, "credentials.env")
+
+function readJson(file, fallback = {}) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"))
+  } catch {
+    return fallback
+  }
+}
+
+function parseEnvFile(file) {
+  const result = {}
+  let text = ""
+  try {
+    text = fs.readFileSync(file, "utf8")
+  } catch {
+    return result
+  }
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim()
+    if (!line || line.startsWith("#")) continue
+    const match = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/)
+    if (!match) continue
+    let value = match[2].trim()
+    if ((value.startsWith('"') && value.endsWith('"')) || (value.startsWith("'") && value.endsWith("'"))) {
+      value = value.slice(1, -1)
+    }
+    result[match[1]] = value
+  }
+  return result
+}
+
+function trimTrailingSlash(value) {
+  return String(value || "").trim().replace(/\/+$/, "")
+}
+
+function rootBaseUrl(rawBaseUrl) {
+  let base = trimTrailingSlash(rawBaseUrl || "http://127.0.0.1:8080")
+  base = base.replace(/\/anthropic\/v1$/i, "/anthropic")
+  base = base.replace(/\/(openai|zanellm)\/v1$/i, "")
+  base = base.replace(/\/v1$/i, "")
+  base = base.replace(/\/openai$/i, "")
+  base = base.replace(/\/zanellm$/i, "")
+  return base || "http://127.0.0.1:8080"
+}
+
+function openAIChatBase(rawBaseUrl) {
+  const base = trimTrailingSlash(rawBaseUrl || "")
+  if (/\/(v1|openai\/v1|zanellm\/v1|compatible-mode\/v1)$/i.test(base)) return base
+  return `${rootBaseUrl(rawBaseUrl)}/zanellm/v1`
+}
+
+function loadConfig() {
+  const fileConfig = readJson(configFile, {})
+  const credentials = parseEnvFile(credentialsFile)
+  const baseUrl = process.env.ZANELLM_BASE_URL || fileConfig.base_url || "http://127.0.0.1:8080"
+  const model = process.env.ZANELLM_MODEL || fileConfig.model || "gpt-5.5"
+  const apiKey =
+    process.env.ZANELLM_API_KEY ||
+    credentials.ZANELLM_API_KEY ||
+    credentials.OPENAI_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    ""
+
+  return {
+    baseUrl: rootBaseUrl(baseUrl),
+    model,
+    apiKey,
+  }
+}
+
+function zaneOpenCodeConfig(config) {
+  return {
+    $schema: "https://opencode.ai/config.json",
+    autoupdate: false,
+    share: "disabled",
+    enabled_providers: ["zanellm"],
+    model: `zanellm/${config.model}`,
+    provider: {
+      zanellm: {
+        npm: "@ai-sdk/openai-compatible",
+        name: "ZaneLLM",
+        options: {
+          baseURL: openAIChatBase(config.baseUrl),
+          apiKey: "{env:ZANELLM_API_KEY}",
+        },
+      },
+    },
+  }
+}
+
+function hasHelpArg(args) {
+  return args.includes("--help") || args.includes("-h") || args.includes("help")
+}
+
+function printHelp() {
+  console.log(`Usage: zaneapp [options]
+
+Launches the cached Zane desktop app.
+
+Options:
+  --rebuild    rebuild the cached app before launching
+  --no-build   fail if the cached app build is missing
+  --dev        run the Electron/Vite dev server
+  --foreground keep the app attached to this terminal and show logs
+  -h, --help   show this help
+`)
+}
+
+function runBridge(args, options = {}) {
+  if (!fs.existsSync(zaneBridgeBin)) return
+  const result = childProcess.spawnSync(process.execPath, [zaneBridgeBin, ...args], {
+    cwd: path.resolve(repoRoot, "..", ".."),
+    stdio: options.stdio ?? "inherit",
+    env: process.env,
+  })
+  if (result.status !== 0 && !options.allowFailure) {
+    process.exit(result.status ?? 1)
+  }
+}
+
+function ensureZaneReady(args) {
+  runBridge(["install", "--quiet"], { allowFailure: true })
+  if (hasHelpArg(args)) return
+  if (loadConfig().apiKey) return
+  runBridge(["setup"])
+}
+
+function spawnChecked(command, args, options = {}) {
+  const result = childProcess.spawnSync(command, args, {
+    cwd: options.cwd ?? desktopRoot,
+    stdio: options.stdio ?? "inherit",
+    env: options.env ?? process.env,
+  })
+  if (result.error) {
+    console.error(result.error.message)
+    process.exit(1)
+  }
+  if (result.status !== 0) process.exit(result.status ?? 1)
+}
+
+function appArtifactsReady() {
+  return [
+    path.join(desktopOut, "main", "index.js"),
+    path.join(desktopOut, "main", "sidecar.js"),
+    path.join(desktopOut, "preload", "index.js"),
+    path.join(desktopOut, "renderer", "index.html"),
+    path.join(repoRoot, "packages", "opencode", "dist", "node", "node.js"),
+  ].every((file) => fs.existsSync(file))
+}
+
+function ensureBuilt(args, env) {
+  const force = args.includes("--rebuild")
+  const noBuild = args.includes("--no-build")
+  if (!force && appArtifactsReady()) return
+
+  if (noBuild) {
+    console.error("Zane App build cache is missing. Run `zaneapp --rebuild` once.")
+    process.exit(1)
+  }
+
+  console.log(force ? "Rebuilding Zane App..." : "Preparing Zane App once...")
+  spawnChecked("bun", ["run", "build"], { cwd: desktopRoot, env })
+}
+
+function main() {
+  let args = process.argv.slice(2)
+  if (hasHelpArg(args)) {
+    printHelp()
+    return
+  }
+  const dev = args.includes("--dev") || process.env.ZANEAPP_DEV === "1"
+  const foreground = args.includes("--foreground") || process.env.ZANEAPP_FOREGROUND === "1"
+  args = args.filter((arg) => !["--dev", "--rebuild", "--no-build", "--foreground"].includes(arg))
+  ensureZaneReady(args)
+  const config = loadConfig()
+  const env = {
+    ...process.env,
+    ZANELLM_BASE_URL: config.baseUrl,
+    ZANELLM_MODEL: config.model,
+    ZANELLM_API_KEY: config.apiKey,
+    OPENAI_API_KEY: config.apiKey,
+    OPENCODE_CONFIG_CONTENT: JSON.stringify(zaneOpenCodeConfig(config)),
+    OPENCODE_DISABLE_AUTOUPDATE: "1",
+  }
+
+  if (dev) {
+    const child = childProcess.spawn("bun", ["run", "dev", ...args], {
+      cwd: desktopRoot,
+      stdio: "inherit",
+      env,
+    })
+
+    child.on("error", (error) => {
+      console.error(error.message)
+      process.exit(1)
+    })
+
+    child.on("exit", (code, signal) => {
+      if (signal) {
+        process.kill(process.pid, signal)
+        return
+      }
+      process.exit(code ?? 0)
+    })
+    return
+  }
+
+  ensureBuilt(process.argv.slice(2), env)
+  if (!fs.existsSync(electronBin)) {
+    console.error("Electron is not installed for Zane App. Run `zanecode` once to install dependencies.")
+    process.exit(1)
+  }
+
+  const child = childProcess.spawn(electronBin, [desktopRoot, ...args], {
+    cwd: desktopRoot,
+    detached: !foreground,
+    stdio: foreground ? "inherit" : "ignore",
+    env,
+  })
+
+  child.on("error", (error) => {
+    console.error(error.message)
+    process.exit(1)
+  })
+
+  child.on("exit", (code, signal) => {
+    if (!foreground) return
+    if (signal) {
+      process.kill(process.pid, signal)
+      return
+    }
+    process.exit(code ?? 0)
+  })
+
+  if (!foreground) child.unref()
+}
+
+main()

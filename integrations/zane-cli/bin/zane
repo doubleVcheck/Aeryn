@@ -1,0 +1,2607 @@
+#!/usr/bin/env node
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+import { spawn, spawnSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+
+const __filename = fileURLToPath(import.meta.url);
+const packageRoot = path.resolve(path.dirname(__filename), "..");
+const repoRoot = path.resolve(packageRoot, "..", "..");
+const home = os.homedir();
+const configDir = path.join(home, ".config", "zane-cli");
+const configFile = path.join(configDir, "config.json");
+const credentialsFile = path.join(configDir, "credentials.env");
+const stateFile = path.join(configDir, "bridge-install.json");
+const opencodeConfigFile = path.join(configDir, "opencode.json");
+const continueConfigFile = path.join(configDir, "continue.yaml");
+const codexCatalogFile = path.join(configDir, "codex-model-catalog.json");
+const hermesHome = path.join(configDir, "hermes");
+const grokConfigFile = path.join(home, ".grok", "config.toml");
+const grokModelAlias = "zanellm_grok";
+const localBinDir = path.join(home, ".local", "bin");
+const zaneChatBin = path.resolve(repoRoot, "backend", "start.sh");
+const zaneChatBootstrapScript = path.resolve(packageRoot, "scripts", "bootstrap_zanechat.py");
+const zaneCodeBin = path.resolve(packageRoot, "..", "zanecode", "bin", "zanecode");
+const zaneAppBin = path.resolve(packageRoot, "..", "zanecode", "bin", "zaneapp");
+const repoVenvBin = path.resolve(repoRoot, ".venv", "bin");
+const zaneChatDataDir = path.resolve(repoRoot, "backend", "open_webui", "data");
+const defaultGatewayBaseUrl = "http://127.0.0.1:8080";
+const defaultArtemisiaBaseUrl = "https://artemisiahub.com/v1";
+
+const bridgeCommands = [
+  "zane",
+  "zanechat",
+  "zanecli",
+  "zanecode",
+  "zaneapp",
+  "zaneupdate",
+  "zanei",
+  "zaned",
+  "zanedisable",
+  "zanecc",
+  "zanegpt",
+  "zanegrok",
+  "zanegrokcli",
+  "zanexai",
+  "zanecodex",
+  "zaneoc",
+  "zaneopencode",
+  "zanea",
+  "zaneaider",
+  "zanecontinue",
+  "zanecn",
+  "zaneh",
+  "zanehermes",
+  "zanegoose",
+  "zanegemini",
+  "zanecursor"
+];
+
+const launcherByCommand = {
+  zanechat: "zanechat",
+  zanecli: "zanecode",
+  zanecode: "zanecode",
+  zaneapp: "zaneapp",
+  zanecc: "claude",
+  zanegpt: "codex",
+  zanegrok: "grok",
+  zanegrokcli: "claude",
+  zanexai: "grok",
+  zanecodex: "codex",
+  zaneoc: "opencode",
+  zaneopencode: "opencode",
+  zanea: "aider",
+  zaneaider: "aider",
+  zanecontinue: "cn",
+  zanecn: "cn",
+  zaneh: "hermes",
+  zanehermes: "hermes",
+  zanegoose: "goose",
+  zanegemini: "gemini",
+  zanecursor: "cursor"
+};
+
+function isTTY() {
+  return Boolean(process.stdout.isTTY);
+}
+
+function color(code, value) {
+  return isTTY() ? `\x1b[${code}m${value}\x1b[0m` : value;
+}
+
+function cyan(value) {
+  return color("36", value);
+}
+
+function dim(value) {
+  return color("2", value);
+}
+
+function green(value) {
+  return color("32", value);
+}
+
+function yellow(value) {
+  return color("33", value);
+}
+
+function red(value) {
+  return color("31", value);
+}
+
+function shellQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+function envQuote(value) {
+  return `'${String(value).replace(/'/g, "'\\''")}'`;
+}
+
+function fail(message, code = 1) {
+  console.error(red(`Error: ${message}`));
+  process.exit(code);
+}
+
+function ensureDir(dir) {
+  fs.mkdirSync(dir, { recursive: true, mode: 0o700 });
+}
+
+function readJson(file, fallback = {}) {
+  try {
+    return JSON.parse(fs.readFileSync(file, "utf8"));
+  } catch {
+    return fallback;
+  }
+}
+
+function writeJson(file, value) {
+  ensureDir(path.dirname(file));
+  fs.writeFileSync(file, `${JSON.stringify(value, null, 2)}\n`, { mode: 0o600 });
+}
+
+function writeCredentials(apiKey, extras = {}) {
+  ensureDir(configDir);
+  const lines = [`ZANELLM_API_KEY=${envQuote(apiKey)}`];
+  if (extras.artemisiaAccessToken) {
+    lines.push(`ZANE_ARTEMISIA_ACCESS_TOKEN=${envQuote(extras.artemisiaAccessToken)}`);
+    lines.push(`ARTEMISIAHUB_ACCESS_TOKEN=${envQuote(extras.artemisiaAccessToken)}`);
+    lines.push(`NEWAPI_ACCESS_TOKEN=${envQuote(extras.artemisiaAccessToken)}`);
+  }
+  if (extras.newApiUserId) {
+    lines.push(`ZANE_ARTEMISIA_ACCOUNT_ID=${envQuote(extras.newApiUserId)}`);
+    lines.push(`ZANE_NEWAPI_USER_ID=${envQuote(extras.newApiUserId)}`);
+    lines.push(`NEWAPI_USER_ID=${envQuote(extras.newApiUserId)}`);
+  }
+  if (extras.newApiBaseUrl) {
+    lines.push(`NEWAPI_BASE_URL=${envQuote(extras.newApiBaseUrl)}`);
+  }
+  if (extras.zaneChatApiKey) {
+    lines.push(`ZANECHAT_API_KEY=${envQuote(extras.zaneChatApiKey)}`);
+  }
+  if (Array.isArray(extras.providerTokens) && extras.providerTokens.length > 0) {
+    lines.push(`ZANE_PROVIDER_TOKENS=${envQuote(JSON.stringify(extras.providerTokens))}`);
+  }
+  fs.writeFileSync(credentialsFile, `${lines.join("\n")}\n`, { mode: 0o600 });
+}
+
+function updateConfig(patch) {
+  const current = { ...defaultConfig(), ...readJson(configFile, {}) };
+  writeJson(configFile, { ...current, ...patch });
+}
+
+function parseEnvFile(file) {
+  const result = {};
+  let text = "";
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return result;
+  }
+
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const match = line.match(/^(?:export\s+)?([A-Za-z_][A-Za-z0-9_]*)=(.*)$/);
+    if (!match) continue;
+    let value = match[2].trim();
+    if (
+      (value.startsWith('"') && value.endsWith('"')) ||
+      (value.startsWith("'") && value.endsWith("'"))
+    ) {
+      value = value.slice(1, -1);
+    }
+    result[match[1]] = value;
+  }
+  return result;
+}
+
+function parseProviderTokens(value) {
+  if (!value) return [];
+  try {
+    const parsed = JSON.parse(value);
+    if (!Array.isArray(parsed)) return [];
+    return parsed
+      .map((item) => ({
+        apiKey: String(item.apiKey || "").trim(),
+        group: String(item.group || "").trim(),
+        tokenName: String(item.tokenName || "").trim(),
+        tokenId: item.tokenId === undefined || item.tokenId === null ? "" : String(item.tokenId),
+        models: Array.isArray(item.models) ? item.models.map(cleanModelId).filter(Boolean) : []
+      }))
+      .filter((item) => item.apiKey);
+  } catch {
+    return [];
+  }
+}
+
+function trimTrailingSlash(value) {
+  return String(value || "").trim().replace(/\/+$/, "");
+}
+
+function rootBaseUrl(rawBaseUrl) {
+  let base = trimTrailingSlash(rawBaseUrl || "http://127.0.0.1:8080");
+  base = base.replace(/\/anthropic\/v1$/i, "/anthropic");
+  base = base.replace(/\/(openai|zanellm)\/v1$/i, "");
+  base = base.replace(/\/v1$/i, "");
+  base = base.replace(/\/openai$/i, "");
+  base = base.replace(/\/zanellm$/i, "");
+  return base || "http://127.0.0.1:8080";
+}
+
+function newApiRootBase(rawBaseUrl) {
+  let base = trimTrailingSlash(rawBaseUrl || defaultArtemisiaBaseUrl);
+  base = base.replace(/\/(openai\/v1|compatible-mode\/v1|api\/v1|inference\/v1|v1)$/i, "");
+  base = base.replace(/\/(openai|compatible-mode|api|inference)$/i, "");
+  return base || trimTrailingSlash(defaultArtemisiaBaseUrl).replace(/\/v1$/i, "");
+}
+
+function openAIChatBase(rawBaseUrl) {
+  const base = trimTrailingSlash(rawBaseUrl || "");
+  if (/\/(v1|openai\/v1|zanellm\/v1|compatible-mode\/v1)$/i.test(base)) {
+    return base;
+  }
+  return `${rootBaseUrl(rawBaseUrl)}/zanellm/v1`;
+}
+
+function openAIResponsesBase(rawBaseUrl) {
+  const base = trimTrailingSlash(rawBaseUrl || "");
+  if (/\/openai$/i.test(base)) return base;
+  return `${rootBaseUrl(rawBaseUrl)}/openai`;
+}
+
+function anthropicBase(rawBaseUrl) {
+  const base = trimTrailingSlash(rawBaseUrl || "");
+  if (/\/anthropic$/i.test(base)) return base;
+  if (/\/anthropic\/v1$/i.test(base)) return base.replace(/\/v1$/i, "");
+  return `${rootBaseUrl(rawBaseUrl)}/anthropic`;
+}
+
+function loadBridgeConfig() {
+  const fileConfig = readJson(configFile, {});
+  const credentials = parseEnvFile(credentialsFile);
+  const baseUrl = process.env.ZANELLM_BASE_URL || fileConfig.base_url || defaultGatewayBaseUrl;
+  const upstreamBaseUrl = process.env.ZANE_UPSTREAM_BASE_URL || fileConfig.upstream_base_url || defaultArtemisiaBaseUrl;
+  const model = process.env.ZANELLM_MODEL || fileConfig.model || "gpt-5.5";
+  const reasoning = process.env.ZANELLM_REASONING || fileConfig.reasoning || "medium";
+  const apiKey =
+    process.env.ZANELLM_API_KEY ||
+    credentials.ZANELLM_API_KEY ||
+    credentials.OPENAI_API_KEY ||
+    process.env.OPENAI_API_KEY ||
+    "";
+  const artemisiaAccessToken =
+    process.env.ZANE_ARTEMISIA_ACCESS_TOKEN ||
+    process.env.ARTEMISIAHUB_ACCESS_TOKEN ||
+    process.env.NEWAPI_ACCESS_TOKEN ||
+    credentials.ZANE_ARTEMISIA_ACCESS_TOKEN ||
+    credentials.ARTEMISIAHUB_ACCESS_TOKEN ||
+    credentials.NEWAPI_ACCESS_TOKEN ||
+    "";
+  const newApiUserId =
+    process.env.ZANE_ARTEMISIA_ACCOUNT_ID ||
+    process.env.ZANE_NEWAPI_USER_ID ||
+    process.env.NEWAPI_USER_ID ||
+    credentials.ZANE_ARTEMISIA_ACCOUNT_ID ||
+    credentials.ZANE_NEWAPI_USER_ID ||
+    credentials.NEWAPI_USER_ID ||
+    fileConfig.newapi_user_id ||
+    "";
+  const providerTokens = parseProviderTokens(credentials.ZANE_PROVIDER_TOKENS || fileConfig.provider_tokens || "");
+
+  return {
+    baseUrl: rootBaseUrl(baseUrl),
+    upstreamBaseUrl: normalizeOpenAIBase(upstreamBaseUrl),
+    upstreamRootBaseUrl: newApiRootBase(upstreamBaseUrl),
+    model,
+    reasoning,
+    temperature: fileConfig.temperature ?? 0.7,
+    apiKey,
+    artemisiaAccessToken,
+    newApiUserId,
+    providerTokens,
+    keyPresent: Boolean(apiKey)
+  };
+}
+
+function normalizeOpenAIBase(rawBaseUrl) {
+  const base = trimTrailingSlash(rawBaseUrl || defaultArtemisiaBaseUrl);
+  if (/\/(v1|openai\/v1|compatible-mode\/v1|api\/v1|inference\/v1)$/i.test(base)) return base;
+  return `${base}/v1`;
+}
+
+function defaultConfig() {
+  return {
+    base_url: defaultGatewayBaseUrl,
+    upstream_base_url: defaultArtemisiaBaseUrl,
+    model: "gpt-5.5",
+    reasoning: "medium",
+    temperature: 0.7
+  };
+}
+
+function createDefaultConfigIfNeeded() {
+  ensureDir(configDir);
+  if (!fs.existsSync(configFile)) {
+    writeJson(configFile, defaultConfig());
+    return true;
+  }
+  return false;
+}
+
+function executableOnPath(name) {
+  const pathValue = process.env.PATH || "";
+  const candidates = pathValue.split(path.delimiter).filter(Boolean);
+  const extra = [path.join(home, ".local", "bin"), path.join(home, ".npm-global", "bin")];
+  for (const dir of [...candidates, ...extra]) {
+    const file = path.join(dir, name);
+    try {
+      const stat = fs.statSync(file);
+      if (stat.isFile() && (stat.mode & 0o111)) return file;
+    } catch {
+      // keep scanning
+    }
+  }
+  return "";
+}
+
+function hasHelpArg(args) {
+  return args.includes("--help") || args.includes("-h");
+}
+
+function hasAnyFlag(args, longNames, shortNames = []) {
+  for (const arg of args) {
+    if (longNames.includes(arg)) return true;
+    if (longNames.some((name) => arg.startsWith(`${name}=`))) return true;
+    if (shortNames.includes(arg)) return true;
+  }
+  return false;
+}
+
+function reasoningForCli(value) {
+  const normalized = String(value || "").trim().toLowerCase();
+  if (!normalized || normalized === "off" || normalized === "none" || normalized === "disabled") return "";
+  if (["low", "medium", "high", "xhigh", "max"].includes(normalized)) return normalized;
+  if (["extra", "extra-high", "extra_high"].includes(normalized)) return "xhigh";
+  return "medium";
+}
+
+function publicEnv(config) {
+  return {
+    ZANELLM_BASE_URL: config.baseUrl,
+    ZANELLM_MODEL: config.model,
+    ZANELLM_REASONING: config.reasoning,
+    ZANELLM_API_KEY: config.apiKey,
+    OPENAI_API_KEY: config.apiKey
+  };
+}
+
+function requireKey(config) {
+  if (!config.keyPresent) {
+    fail(
+      `ZANELLM_API_KEY is missing. Add it to ${credentialsFile} or export ZANELLM_API_KEY in this shell.`
+    );
+  }
+}
+
+function parseOption(args, names, fallback = "") {
+  for (let index = 0; index < args.length; index += 1) {
+    const arg = args[index];
+    for (const name of names) {
+      if (arg === name) return args[index + 1] || fallback;
+      if (arg.startsWith(`${name}=`)) return arg.slice(name.length + 1);
+    }
+  }
+  return fallback;
+}
+
+function runPinentryPrompt() {
+  const pinentry = executableOnPath("pinentry-gnome3") || executableOnPath("pinentry") || executableOnPath("pinentry-curses");
+  if (!pinentry) return "";
+
+  const input = [
+    "SETTITLE zanecode setup",
+    "SETPROMPT artemisiahub access token:",
+    `SETDESC Paste your artemisiahub access token. Zane will fetch a model API key locally and store credentials in ${credentialsFile} with 0600 permissions.`,
+    "GETPIN",
+    "BYE",
+    ""
+  ].join("\n");
+
+  const result = spawnSync(pinentry, [], {
+    input,
+    encoding: "utf8",
+    stdio: ["pipe", "pipe", "ignore"]
+  });
+
+  if (result.status !== 0 || !result.stdout) return "";
+  const dataLine = result.stdout.split(/\r?\n/).find((line) => line.startsWith("D "));
+  return dataLine ? dataLine.slice(2).trim() : "";
+}
+
+function promptSecretFromTty() {
+  if (!process.stdin.isTTY) return "";
+  const result = spawnSync(
+    "sh",
+    [
+      "-c",
+      "printf 'artemisiahub access token: ' > /dev/tty; stty -echo < /dev/tty; IFS= read -r token < /dev/tty; stty echo < /dev/tty; printf '\\n' > /dev/tty; printf '%s' \"$token\""
+    ],
+    {
+      encoding: "utf8",
+      stdio: ["ignore", "pipe", "inherit"]
+    }
+  );
+  return result.status === 0 ? String(result.stdout || "").trim() : "";
+}
+
+function getSetupToken(forcePrompt = false) {
+  if (!forcePrompt) {
+    const envToken =
+      process.env.ZANE_BOOTSTRAP_TOKEN ||
+      process.env.ZANE_ARTEMISIA_ACCESS_TOKEN ||
+      process.env.ARTEMISIAHUB_ACCESS_TOKEN ||
+      process.env.NEWAPI_ACCESS_TOKEN ||
+      "";
+    if (envToken.trim()) return envToken.trim();
+
+    const config = loadBridgeConfig();
+    if (config.artemisiaAccessToken) return config.artemisiaAccessToken;
+    if (config.apiKey) return config.apiKey;
+  }
+
+  const fromPinentry = runPinentryPrompt();
+  if (fromPinentry) return fromPinentry;
+
+  const fromTty = promptSecretFromTty();
+  if (fromTty) return fromTty;
+
+  fail("could not read an artemisiahub access token. Run from a terminal or set ZANE_BOOTSTRAP_TOKEN for this command.");
+}
+
+function normalizeSecretToken(value) {
+  return String(value || "").trim().replace(/^Bearer\s+/i, "");
+}
+
+function decodeJwtPayload(token) {
+  const parts = normalizeSecretToken(token).split(".");
+  if (parts.length < 2) return null;
+  try {
+    const base64 = parts[1].replace(/-/g, "+").replace(/_/g, "/");
+    const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+    return JSON.parse(Buffer.from(padded, "base64").toString("utf8"));
+  } catch {
+    return null;
+  }
+}
+
+function addUserIdCandidate(candidates, value) {
+  if (value === undefined || value === null) return;
+  const text = String(value).trim();
+  if (!text || candidates.includes(text)) return;
+  candidates.push(text);
+}
+
+function collectUserIdCandidatesFromObject(candidates, value) {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return;
+  for (const key of ["user_id", "userId", "uid", "id", "sub"]) {
+    addUserIdCandidate(candidates, value[key]);
+  }
+  for (const key of ["user", "account", "profile"]) {
+    collectUserIdCandidatesFromObject(candidates, value[key]);
+  }
+}
+
+function userIdCandidatesFromAccessToken(accessToken) {
+  const candidates = [];
+  collectUserIdCandidatesFromObject(candidates, decodeJwtPayload(accessToken));
+  return candidates;
+}
+
+function formatHttpError(response, body) {
+  let detail = `${response.status} ${response.statusText}`;
+  if (body && typeof body === "object") {
+    const message = body.message || body.detail || body.error?.message || body.error;
+    if (typeof message === "string" && message.trim()) detail = message.trim();
+  } else if (typeof body === "string" && body.trim()) {
+    detail = body.trim();
+  }
+  return detail.length > 300 ? `${detail.slice(0, 297)}...` : detail;
+}
+
+async function readResponseBody(response) {
+  const text = await response.text();
+  if (!text) return null;
+  try {
+    return JSON.parse(text);
+  } catch {
+    return text;
+  }
+}
+
+async function fetchJsonChecked(url, options = {}) {
+  const response = await fetch(url, options);
+  const body = await readResponseBody(response);
+  if (!response.ok) throw new Error(formatHttpError(response, body));
+  if (body && typeof body === "object" && body.success === false && body.message) {
+    throw new Error(String(body.message));
+  }
+  return body;
+}
+
+function newApiHeaders(accessToken, userId = "", includeJson = false) {
+  const headers = {
+    Authorization: `Bearer ${normalizeSecretToken(accessToken)}`
+  };
+  if (userId) headers["New-Api-User"] = String(userId);
+  if (includeJson) headers["Content-Type"] = "application/json";
+  return headers;
+}
+
+function newApiData(body) {
+  if (body && typeof body === "object" && Object.prototype.hasOwnProperty.call(body, "data")) {
+    return body.data;
+  }
+  return body;
+}
+
+function ensureSkPrefix(rawKey) {
+  const value = String(rawKey || "").trim();
+  if (!value) return "";
+  if (value.includes("*")) return "";
+  return value.startsWith("sk-") ? value : `sk-${value}`;
+}
+
+function extractTokenId(record) {
+  if (!record || typeof record !== "object") return "";
+  return record.id ?? record.token_id ?? record.tokenId ?? record.ID ?? "";
+}
+
+function tokenEnabled(record) {
+  if (!record || typeof record !== "object") return false;
+  const status = record.status ?? record.Status ?? record.enabled ?? record.enable;
+  if (status === undefined || status === null || status === "") return true;
+  if (status === true || status === 1 || status === "1") return true;
+  const text = String(status).toLowerCase();
+  return ["enabled", "active", "valid", "normal"].includes(text);
+}
+
+function tokenName(record) {
+  if (!record || typeof record !== "object") return "";
+  return String(record.name || record.Name || record.display_name || record.displayName || "").trim();
+}
+
+function tokenGroup(record) {
+  if (!record || typeof record !== "object") return "";
+  return String(record.group || record.Group || "").trim();
+}
+
+function listFromNewApiBody(body) {
+  const data = newApiData(body);
+  if (Array.isArray(data)) return data;
+  if (data && typeof data === "object") {
+    for (const key of ["items", "tokens", "records", "list", "rows", "data"]) {
+      if (Array.isArray(data[key])) return data[key];
+    }
+  }
+  if (body && typeof body === "object") {
+    for (const key of ["items", "tokens", "records", "list", "rows"]) {
+      if (Array.isArray(body[key])) return body[key];
+    }
+  }
+  return [];
+}
+
+async function newApiRequest(accessToken, userId, rootBase, method, pathSuffix, body = undefined) {
+  const pathSuffixValue = pathSuffix.startsWith("/") ? pathSuffix : `/${pathSuffix}`;
+  return fetchJsonChecked(`${newApiRootBase(rootBase)}${pathSuffixValue}`, {
+    method,
+    headers: newApiHeaders(accessToken, userId, body !== undefined),
+    body: body === undefined ? undefined : JSON.stringify(body)
+  });
+}
+
+async function listNewApiTokens(accessToken, userId, rootBase) {
+  const paths = ["/api/token/?p=1&size=200", "/api/token/?p=0&page_size=100", "/api/token/"];
+  let lastError;
+  for (const pathValue of paths) {
+    try {
+      return listFromNewApiBody(await newApiRequest(accessToken, userId, rootBase, "GET", pathValue));
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("token list request failed");
+}
+
+function selectNewApiToken(tokens, preferredName, group = undefined) {
+  const groupFilter = group === undefined ? undefined : String(group || "").trim();
+  const usable = tokens.filter((record) => {
+    if (!tokenEnabled(record)) return false;
+    if (groupFilter === undefined) return true;
+    return tokenGroup(record) === groupFilter;
+  });
+  const preferred = String(preferredName || "").trim().toLowerCase();
+  const names = [preferred, "zanecode", "zanecli", "zanechat", "zane"].filter(Boolean);
+
+  for (const name of names) {
+    const exact = usable.find((record) => tokenName(record).toLowerCase() === name);
+    if (exact) return exact;
+  }
+  for (const name of names) {
+    const partial = usable.find((record) => tokenName(record).toLowerCase().includes(name));
+    if (partial) return partial;
+  }
+  return null;
+}
+
+async function listNewApiGroups(accessToken, userId, rootBase) {
+  const paths = ["/api/user/self/groups", "/api/user/groups"];
+  for (const pathValue of paths) {
+    try {
+      const body = await newApiRequest(accessToken, userId, rootBase, "GET", pathValue);
+      const data = newApiData(body);
+      if (Array.isArray(data)) {
+        return data
+          .map((item) => (typeof item === "string" ? item : item.name || item.group || item.id || ""))
+          .map((item) => String(item).trim())
+          .filter(Boolean);
+      }
+      if (data && typeof data === "object") {
+        return Object.keys(data).map((item) => String(item).trim()).filter(Boolean);
+      }
+    } catch {
+      // try the next known group endpoint
+    }
+  }
+  return [];
+}
+
+function groupTokenName(baseName, group) {
+  const suffix = String(group || "")
+    .trim()
+    .toLowerCase()
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  return suffix ? `${baseName}-${suffix}` : baseName;
+}
+
+function orderedGroups(groups, onlyGroup = "") {
+  const values = Array.from(new Set(groups.map((group) => String(group || "").trim()).filter(Boolean)));
+  if (onlyGroup) return values.includes(onlyGroup) ? [onlyGroup] : [onlyGroup, ...values];
+  const priority = ["gpt_plus", "claude", "Grok", "gemini", "deepseek", "glm", "default"];
+  return [
+    ...priority.filter((group) => values.includes(group)),
+    ...values.filter((group) => !priority.includes(group))
+  ];
+}
+
+async function createNewApiToken(accessToken, userId, rootBase, tokenNameValue, group) {
+  const payloads = [];
+  const basePayload = {
+    name: tokenNameValue,
+    remain_quota: 0,
+    unlimited_quota: true
+  };
+  if (group) basePayload.group = group;
+  payloads.push(basePayload);
+
+  const legacyPayload = {
+    name: tokenNameValue,
+    amount: 0,
+    expire_time: 0
+  };
+  if (group) legacyPayload.group = group;
+  payloads.push(legacyPayload);
+
+  let lastError = null;
+  for (const payload of payloads) {
+    try {
+      return newApiData(await newApiRequest(accessToken, userId, rootBase, "POST", "/api/token/", payload));
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("token creation failed");
+}
+
+function extractTokenKey(body) {
+  const data = newApiData(body);
+  if (typeof data === "string") return ensureSkPrefix(data);
+  if (data && typeof data === "object") return ensureSkPrefix(data.key || data.api_key || data.apiKey);
+  if (body && typeof body === "object") return ensureSkPrefix(body.key || body.api_key || body.apiKey);
+  return "";
+}
+
+async function fetchNewApiTokenKey(accessToken, userId, rootBase, tokenId) {
+  const body = await newApiRequest(accessToken, userId, rootBase, "POST", `/api/token/${encodeURIComponent(tokenId)}/key`);
+  const key = extractTokenKey(body);
+  if (!key) throw new Error("token key endpoint did not return a usable key");
+  return key;
+}
+
+async function resolveNewApiGroupProvider(accessToken, userId, rootBase, upstreamBaseUrl, tokens, tokenNameValue, group) {
+  const name = groupTokenName(tokenNameValue, group);
+  let record = selectNewApiToken(tokens, name, group);
+  let created = false;
+
+  if (!record) {
+    const createdRecord = await createNewApiToken(accessToken, userId, rootBase, name, group);
+    created = true;
+    const createdId = extractTokenId(createdRecord);
+    if (createdId) {
+      record = createdRecord;
+    } else {
+      const refreshed = await listNewApiTokens(accessToken, userId, rootBase);
+      tokens.splice(0, tokens.length, ...refreshed);
+      record = selectNewApiToken(tokens, name, group);
+    }
+  }
+
+  if (!record) throw new Error(`could not find or create token for group '${group || "default"}'`);
+  const tokenId = extractTokenId(record);
+  if (!tokenId) throw new Error(`token for group '${group || "default"}' has no id`);
+
+  const apiKey = await fetchNewApiTokenKey(accessToken, userId, rootBase, tokenId);
+  const models = await fetchUpstreamModels(apiKey, upstreamBaseUrl);
+  return {
+    apiKey,
+    accessToken,
+    userId,
+    newApiBaseUrl: rootBase,
+    tokenId,
+    tokenName: tokenName(record) || name,
+    group,
+    created,
+    models
+  };
+}
+
+async function resolveNewApiProviderTokens(accessToken, upstreamBaseUrl, requestedUserId, tokenNameValue, group) {
+  const rootBase = newApiRootBase(upstreamBaseUrl);
+  const normalizedAccessToken = normalizeSecretToken(accessToken);
+  const inferredUserIds = userIdCandidatesFromAccessToken(normalizedAccessToken);
+  const probedUserIds = Array.from({ length: 100 }, (_, index) => String(index + 1));
+  const userIdCandidates = requestedUserId ? [requestedUserId] : [...inferredUserIds, "", ...probedUserIds];
+  const errors = [];
+
+  for (const userId of Array.from(new Set(userIdCandidates))) {
+    try {
+      const tokens = await listNewApiTokens(normalizedAccessToken, userId, rootBase);
+      const groups = orderedGroups(await listNewApiGroups(normalizedAccessToken, userId, rootBase), group);
+      const groupCandidates = groups.length > 0 ? groups : [group || ""];
+      const providers = [];
+      const groupErrors = [];
+
+      for (const groupName of groupCandidates) {
+        try {
+          const provider = await resolveNewApiGroupProvider(
+            normalizedAccessToken,
+            userId,
+            rootBase,
+            upstreamBaseUrl,
+            tokens,
+            tokenNameValue,
+            groupName
+          );
+          if (provider.models.length > 0) {
+            providers.push(provider);
+          } else {
+            groupErrors.push(`${groupName || "default"}: no models`);
+          }
+        } catch (error) {
+          groupErrors.push(`${groupName || "default"}: ${error.message}`);
+        }
+      }
+
+      if (providers.length === 0) {
+        throw new Error(groupErrors.join("; ") || "no provider groups returned models");
+      }
+
+      const models = Array.from(new Set(providers.flatMap((provider) => provider.models))).sort((a, b) =>
+        a.localeCompare(b)
+      );
+      const primary = providers[0];
+      return {
+        ...primary,
+        accessToken: normalizedAccessToken,
+        userId,
+        newApiBaseUrl: rootBase,
+        providerTokens: providers,
+        skippedGroups: groupErrors,
+        models
+      };
+    } catch (error) {
+      const label = userId ? `account ${userId}` : "no account header";
+      errors.push(`${label}: ${error.message}`);
+    }
+  }
+
+  throw new Error(errors.join("; "));
+}
+
+async function resolveArtemisiaCredential(inputToken, upstreamBaseUrl, requestedUserId, tokenNameValue, group) {
+  const token = normalizeSecretToken(inputToken);
+  let directError = "";
+  try {
+    const models = await fetchUpstreamModels(token, upstreamBaseUrl);
+    return {
+      apiKey: token,
+      accessToken: "",
+      userId: requestedUserId || "",
+      newApiBaseUrl: newApiRootBase(upstreamBaseUrl),
+      source: "model API key",
+      tokenId: "",
+      tokenName: "",
+      created: false,
+      providerTokens: [
+        {
+          apiKey: token,
+          group: "",
+          tokenName: "direct",
+          tokenId: "",
+          models
+        }
+      ],
+      models
+    };
+  } catch (error) {
+    directError = error.message;
+  }
+
+  try {
+    const resolved = await resolveNewApiProviderTokens(token, upstreamBaseUrl, requestedUserId, tokenNameValue, group);
+    return {
+      ...resolved,
+      source: "artemisiahub access token",
+    };
+  } catch (error) {
+    throw new Error(`model API key check failed (${directError}); management token resolution failed (${error.message})`);
+  }
+}
+
+async function fetchUpstreamModels(apiKey, upstreamBaseUrl) {
+  const baseUrl = normalizeOpenAIBase(upstreamBaseUrl);
+  const response = await fetch(`${baseUrl}/models`, {
+    headers: {
+      authorization: `Bearer ${apiKey}`,
+      "x-api-key": apiKey
+    }
+  });
+  if (!response.ok) {
+    let detail = `${response.status} ${response.statusText}`;
+    try {
+      const body = await response.json();
+      detail = body?.error?.message || body?.detail || detail;
+    } catch {
+      // keep HTTP detail
+    }
+    throw new Error(detail);
+  }
+  const body = await response.json();
+  const rawModels = Array.isArray(body) ? body : body.data || body.models || [];
+  return Array.from(new Set(rawModels
+    .map((model) => (typeof model === "string" ? model : model.id || model.name || ""))
+    .map(cleanModelId)
+    .filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function pickDefaultModel(models, fallback) {
+  if (models.includes(fallback)) return fallback;
+  const preferences = [
+    /^gpt-5\.5$/i,
+    /gpt.*5\.5/i,
+    /claude.*sonnet/i,
+    /grok.*4/i,
+    /deepseek.*chat/i,
+    /gemini.*pro/i,
+    /qwen.*coder/i
+  ];
+  for (const pattern of preferences) {
+    const match = models.find((model) => pattern.test(model));
+    if (match) return match;
+  }
+  return models[0] || fallback;
+}
+
+function zaneProviderConfigs(configOrResolved) {
+  const tokens = Array.isArray(configOrResolved.providerTokens) && configOrResolved.providerTokens.length > 0
+    ? configOrResolved.providerTokens
+    : configOrResolved.apiKey
+      ? [{ apiKey: configOrResolved.apiKey, group: "", tokenName: "artemisiahub", tokenId: "", models: [] }]
+      : [];
+  const apiConfigs = {};
+  tokens.forEach((provider, index) => {
+    apiConfigs[String(index)] = {
+      enable: true,
+      connection_type: "external",
+      provider: "artemisiahub",
+      tags: ["artemisiahub", "zanecode", provider.group || "default"].filter(Boolean),
+      prefix_id: "",
+      model_ids: [],
+      api_type: "chat_completions",
+      auth_type: "bearer"
+    };
+  });
+  return { tokens, apiConfigs };
+}
+
+function readZaneChatSecret() {
+  for (const file of [path.join(repoRoot, "backend", ".webui_secret_key"), path.join(repoRoot, ".webui_secret_key")]) {
+    try {
+      const value = fs.readFileSync(file, "utf8").trim();
+      if (value) return value;
+    } catch {
+      // try the next known secret path
+    }
+  }
+  return "";
+}
+
+function bootstrapZaneChatConfig(apiKey, upstreamBaseUrl, model, providerTokens = []) {
+  if (!fs.existsSync(zaneChatBootstrapScript)) {
+    return { ok: false, detail: `missing ${zaneChatBootstrapScript}` };
+  }
+  const venvPython = path.join(repoRoot, ".venv", "bin", "python");
+  const python = fs.existsSync(venvPython) ? venvPython : executableOnPath("python3") || executableOnPath("python");
+  if (!python) return { ok: false, detail: "python3 is not on PATH" };
+
+  const env = {
+    ...process.env,
+    PYTHONPATH: [path.join(repoRoot, "backend"), process.env.PYTHONPATH || ""].filter(Boolean).join(path.delimiter),
+    WEBUI_SECRET_KEY: process.env.WEBUI_SECRET_KEY || readZaneChatSecret(),
+    ZANE_BOOTSTRAP_TOKEN: apiKey,
+    ZANE_BOOTSTRAP_UPSTREAM_BASE: normalizeOpenAIBase(upstreamBaseUrl),
+    ZANE_BOOTSTRAP_MODEL: model || "",
+    ZANE_BOOTSTRAP_PROVIDERS: JSON.stringify(providerTokens)
+  };
+
+  const result = spawnSync(python, [zaneChatBootstrapScript], {
+    cwd: repoRoot,
+    env,
+    encoding: "utf8",
+    stdio: ["ignore", "pipe", "pipe"]
+  });
+
+  if (result.status !== 0) {
+    const detail = String(result.stderr || result.stdout || "unknown error").trim();
+    return { ok: false, detail };
+  }
+
+  try {
+    return { ok: true, data: JSON.parse(result.stdout || "{}") };
+  } catch {
+    return { ok: true, data: {} };
+  }
+}
+
+async function setup(args = [], options = {}) {
+  const force = args.includes("--force");
+  const skipChat = args.includes("--no-zanechat");
+  const currentConfig = loadBridgeConfig();
+  const upstreamBaseUrl = normalizeOpenAIBase(
+    parseOption(args, ["--upstream-base", "--upstream-base-url", "--artemisia-base"], currentConfig.upstreamBaseUrl)
+  );
+  const requestedUserId = parseOption(
+    args,
+    ["--account-id", "--artemisia-user-id", "--newapi-user-id", "--user-id"],
+    currentConfig.newApiUserId || ""
+  );
+  const newApiUserId = String(requestedUserId || "").trim();
+  const tokenNameValue = String(parseOption(args, ["--token-name"], "zanecode") || "").trim() || "zanecode";
+  const group = String(parseOption(args, ["--newapi-group", "--group"], "") || "").trim();
+  const setupToken = getSetupToken(force);
+
+  let resolved;
+  try {
+    resolved = await resolveArtemisiaCredential(setupToken, upstreamBaseUrl, newApiUserId, tokenNameValue, group);
+  } catch (error) {
+    fail(`artemisiahub token check failed: ${error.message}`);
+  }
+
+  const selectedModel = pickDefaultModel(resolved.models, currentConfig.model);
+  updateConfig({
+    base_url: defaultGatewayBaseUrl,
+    upstream_base_url: upstreamBaseUrl,
+    newapi_user_id: resolved.userId || newApiUserId || "",
+    newapi_group: group,
+    provider_tokens: resolved.providerTokens.map((provider) => ({
+      group: provider.group || "",
+      tokenName: provider.tokenName || "",
+      tokenId: provider.tokenId || "",
+      models: provider.models || []
+    })),
+    model: selectedModel
+  });
+
+  let zaneChat = { ok: false, detail: "skipped" };
+  if (!skipChat) zaneChat = bootstrapZaneChatConfig(
+    resolved.apiKey,
+    upstreamBaseUrl,
+    selectedModel,
+    resolved.providerTokens
+  );
+
+  const clientApiKey = zaneChat.ok && zaneChat.data?.local_api_key ? zaneChat.data.local_api_key : resolved.apiKey;
+  writeCredentials(clientApiKey, {
+    artemisiaAccessToken: resolved.accessToken,
+    newApiUserId: resolved.userId || newApiUserId || "",
+    newApiBaseUrl: resolved.newApiBaseUrl,
+    zaneChatApiKey: zaneChat.ok && zaneChat.data?.local_api_key ? zaneChat.data.local_api_key : "",
+    providerTokens: resolved.providerTokens
+  });
+
+  if (!options.quiet) {
+    console.log(green("Zane setup complete."));
+    console.log(`artemisiahub: ${upstreamBaseUrl}`);
+    console.log(`ZaneChat gateway: ${defaultGatewayBaseUrl}`);
+    console.log(`Credential source: ${green(resolved.source)}`);
+    if (resolved.tokenId) {
+      console.log(`Backend model token: ${resolved.tokenName || tokenNameValue} (${resolved.created ? "created" : "reused"}, id ${resolved.tokenId})`);
+    }
+    console.log(`Provider groups: ${resolved.providerTokens.map((provider) => provider.group || "default").join(", ")}`);
+    if (resolved.userId) console.log(`artemisiahub account id: ${resolved.userId}`);
+    console.log(`Default model: ${green(selectedModel)}`);
+    console.log(`Models found: ${resolved.models.length}`);
+    console.log(`Credentials: ${credentialsFile}`);
+    console.log(`ZaneChat config: ${zaneChat.ok ? green("updated") : yellow(zaneChat.detail)}`);
+  }
+
+  return { apiKey: resolved.apiKey, upstreamBaseUrl, model: selectedModel, models: resolved.models, zaneChat };
+}
+
+function formatSampleList(items, limit = 12) {
+  const values = Array.from(items || []).map((item) => String(item)).filter(Boolean);
+  if (values.length === 0) return dim("none");
+  const shown = values.slice(0, limit).join(", ");
+  return values.length > limit ? `${shown}, ${dim(`... ${values.length - limit} more`)}` : shown;
+}
+
+function listDiff(before, after) {
+  const beforeSet = new Set(Array.from(before || []).map((item) => String(item)).filter(Boolean));
+  const afterSet = new Set(Array.from(after || []).map((item) => String(item)).filter(Boolean));
+  return {
+    added: Array.from(afterSet).filter((item) => !beforeSet.has(item)).sort((a, b) => a.localeCompare(b)),
+    removed: Array.from(beforeSet).filter((item) => !afterSet.has(item)).sort((a, b) => a.localeCompare(b))
+  };
+}
+
+function getStoredArtemisiaAccessToken(config) {
+  return normalizeSecretToken(
+    process.env.ZANE_BOOTSTRAP_TOKEN ||
+      process.env.ZANE_ARTEMISIA_ACCESS_TOKEN ||
+      process.env.ARTEMISIAHUB_ACCESS_TOKEN ||
+      process.env.NEWAPI_ACCESS_TOKEN ||
+      config.artemisiaAccessToken ||
+      ""
+  );
+}
+
+function updateHelp() {
+  console.log("Usage:");
+  console.log("  zaneupdate");
+  console.log("  zane update");
+  console.log("  zane update --json");
+  console.log("  zane update --force");
+  console.log("");
+  console.log("Refreshes artemisiahub ModelSquare provider groups and model ids.");
+  console.log("It rewrites local Zane config and ZaneChat providers, but does not delete remote artemisiahub tokens.");
+}
+
+async function updateModelCatalog(args = []) {
+  if (hasHelpArg(args)) {
+    updateHelp();
+    return;
+  }
+
+  const force = args.includes("--force");
+  const skipChat = args.includes("--no-zanechat");
+  const jsonOutput = args.includes("--json");
+  const currentConfig = loadBridgeConfig();
+  const upstreamBaseUrl = normalizeOpenAIBase(
+    parseOption(args, ["--upstream-base", "--upstream-base-url", "--artemisia-base"], currentConfig.upstreamBaseUrl)
+  );
+  const requestedUserId = parseOption(
+    args,
+    ["--account-id", "--artemisia-user-id", "--newapi-user-id", "--user-id"],
+    currentConfig.newApiUserId || ""
+  );
+  const accountId = String(requestedUserId || "").trim();
+  const tokenNameValue = String(parseOption(args, ["--token-name"], "zanecode") || "").trim() || "zanecode";
+  const group = String(parseOption(args, ["--group"], "") || "").trim();
+  const accessToken = force ? getSetupToken(true) : getStoredArtemisiaAccessToken(currentConfig);
+
+  if (!accessToken) {
+    fail("No artemisiahub access token is stored. Run `zane setup` first, or `zane update --force` to enter it locally.");
+  }
+
+  const beforeGroups = currentConfig.providerTokens.map((provider) => provider.group || "default");
+  const beforeModels = currentConfig.providerTokens.flatMap((provider) => provider.models || []);
+
+  let resolved;
+  try {
+    resolved = await resolveNewApiProviderTokens(accessToken, upstreamBaseUrl, accountId, tokenNameValue, group);
+  } catch (error) {
+    fail(`could not update from artemisiahub ModelSquare: ${error.message}`);
+  }
+
+  const selectedModel = resolved.models.includes(currentConfig.model)
+    ? currentConfig.model
+    : pickDefaultModel(resolved.models, currentConfig.model);
+
+  updateConfig({
+    base_url: defaultGatewayBaseUrl,
+    upstream_base_url: upstreamBaseUrl,
+    newapi_user_id: resolved.userId || accountId || "",
+    newapi_group: group,
+    provider_tokens: resolved.providerTokens.map((provider) => ({
+      group: provider.group || "",
+      tokenName: provider.tokenName || "",
+      tokenId: provider.tokenId || "",
+      models: provider.models || []
+    })),
+    model: selectedModel
+  });
+
+  let zaneChat = { ok: false, detail: "skipped" };
+  if (!skipChat) {
+    zaneChat = bootstrapZaneChatConfig(
+      resolved.apiKey,
+      upstreamBaseUrl,
+      selectedModel,
+      resolved.providerTokens
+    );
+  }
+
+  const clientApiKey = zaneChat.ok && zaneChat.data?.local_api_key ? zaneChat.data.local_api_key : resolved.apiKey;
+  writeCredentials(clientApiKey, {
+    artemisiaAccessToken: resolved.accessToken,
+    newApiUserId: resolved.userId || accountId || "",
+    newApiBaseUrl: resolved.newApiBaseUrl,
+    zaneChatApiKey: zaneChat.ok && zaneChat.data?.local_api_key ? zaneChat.data.local_api_key : "",
+    providerTokens: resolved.providerTokens
+  });
+
+  const afterGroups = resolved.providerTokens.map((provider) => provider.group || "default");
+  const afterModels = resolved.models;
+  const groupDiff = listDiff(beforeGroups, afterGroups);
+  const modelDiff = listDiff(beforeModels, afterModels);
+  const payload = {
+    ok: true,
+    source: "artemisiahub ModelSquare",
+    upstream: upstreamBaseUrl,
+    account_id: resolved.userId || accountId || "",
+    provider_groups: afterGroups,
+    model_count_before: new Set(beforeModels).size,
+    model_count_after: afterModels.length,
+    groups_added: groupDiff.added,
+    groups_removed: groupDiff.removed,
+    models_added: modelDiff.added,
+    models_removed: modelDiff.removed,
+    default_model: selectedModel,
+    default_model_changed: selectedModel !== currentConfig.model,
+    skipped_groups: resolved.skippedGroups || [],
+    zanechat: zaneChat.ok ? "updated" : zaneChat.detail
+  };
+
+  if (jsonOutput) {
+    console.log(JSON.stringify(payload, null, 2));
+    return;
+  }
+
+  console.log(green("Zane model catalog updated."));
+  console.log(`source:     ${payload.source}`);
+  console.log(`upstream:   ${upstreamBaseUrl}`);
+  if (payload.account_id) console.log(`account id: ${payload.account_id}`);
+  console.log(`providers:  ${afterGroups.join(", ") || dim("none")}`);
+  console.log(`models:     ${payload.model_count_before} -> ${payload.model_count_after}`);
+  console.log(`groups +:   ${formatSampleList(groupDiff.added)}`);
+  console.log(`groups -:   ${formatSampleList(groupDiff.removed)}`);
+  console.log(`models +:   ${formatSampleList(modelDiff.added)}`);
+  console.log(`models -:   ${formatSampleList(modelDiff.removed)}`);
+  if (payload.skipped_groups.length > 0) console.log(`skipped:    ${formatSampleList(payload.skipped_groups, 6)}`);
+  if (payload.default_model_changed) {
+    console.log(`default:    ${currentConfig.model} -> ${green(selectedModel)}`);
+  } else {
+    console.log(`default:    ${green(selectedModel)}`);
+  }
+  console.log(`ZaneChat:   ${zaneChat.ok ? green("updated") : yellow(zaneChat.detail)}`);
+}
+
+async function ensureBootstrapped(args, label = "Zane") {
+  createDefaultConfigIfNeeded();
+  let config = loadBridgeConfig();
+  if (hasHelpArg(args) || config.keyPresent) return config;
+
+  console.log(`${cyan(label)} first-time setup`);
+  console.log(`Paste your artemisiahub access token. It will not be printed.`);
+  await setup([], { quiet: false });
+  config = loadBridgeConfig();
+  return config;
+}
+
+function spawnBin(bin, args, env) {
+  const child = spawn(bin, args, {
+    stdio: "inherit",
+    env: { ...process.env, ...env }
+  });
+
+  child.on("exit", (code, signal) => {
+    if (signal) {
+      process.kill(process.pid, signal);
+      return;
+    }
+    process.exit(code ?? 0);
+  });
+
+  child.on("error", (error) => fail(error.message));
+}
+
+function spawnTool(tool, args, env) {
+  const bin = executableOnPath(tool);
+  if (!bin) {
+    fail(`'${tool}' is not installed or is not on PATH.`);
+  }
+  spawnBin(bin, args, env);
+}
+
+function managedBlock(name, body) {
+  return [
+    `# >>> zane-cli ${name}`,
+    body.trimEnd(),
+    `# <<< zane-cli ${name}`,
+    ""
+  ].join("\n");
+}
+
+function upsertManagedBlock(file, name, body) {
+  ensureDir(path.dirname(file));
+  const nextBlock = managedBlock(name, body);
+  let text = "";
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    // create it below
+  }
+
+  const pattern = new RegExp(
+    `\\n?# >>> zane-cli ${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n[\\s\\S]*?# <<< zane-cli ${name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\n?`,
+    "m"
+  );
+  const next = pattern.test(text)
+    ? text.replace(pattern, `${nextBlock}`)
+    : `${text.trimEnd()}${text.trim() ? "\n\n" : ""}${nextBlock}`;
+  fs.writeFileSync(file, next, { mode: 0o600 });
+}
+
+function removeManagedBlock(file, name) {
+  let text = "";
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return;
+  }
+  const escaped = name.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`\\n?# >>> zane-cli ${escaped}\\n[\\s\\S]*?# <<< zane-cli ${escaped}\\n?`, "m");
+  const next = text.replace(pattern, "\n").trimEnd();
+  if (next) {
+    fs.writeFileSync(file, `${next}\n`, { mode: 0o600 });
+  } else {
+    try {
+      fs.unlinkSync(file);
+    } catch {
+      // optional
+    }
+  }
+}
+
+function launchClaude(args, bridgeConfig = null) {
+  const config = bridgeConfig || loadBridgeConfig();
+  if (!hasHelpArg(args)) requireKey(config);
+
+  const injected = [];
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--model"], ["-m"]) && config.model) {
+    injected.push("--model", config.model);
+  }
+  const effort = reasoningForCli(config.reasoning);
+  if (!hasHelpArg(args) && effort && !hasAnyFlag(args, ["--effort"])) {
+    injected.push("--effort", effort);
+  }
+
+  spawnTool("claude", [...injected, ...args], {
+    ...publicEnv(config),
+    ANTHROPIC_BASE_URL: anthropicBase(config.baseUrl),
+    ANTHROPIC_AUTH_TOKEN: config.apiKey,
+    ANTHROPIC_API_KEY: config.apiKey,
+    CLAUDE_CODE_DISABLE_TELEMETRY: "1",
+    DISABLE_TELEMETRY: "1"
+  });
+}
+
+function ensureGrokBuildConfig(config) {
+  upsertManagedBlock(
+    grokConfigFile,
+    "grok-model",
+    [
+      `[model.${grokModelAlias}]`,
+      `model = "${tomlString(config.model)}"`,
+      `base_url = "${tomlString(openAIResponsesBase(config.baseUrl))}"`,
+      'name = "ZaneLLM Grok"',
+      'env_key = "ZANELLM_API_KEY"',
+      ""
+    ].join("\n")
+  );
+}
+
+async function launchGrok(args) {
+  const config = hasHelpArg(args) ? loadBridgeConfig() : await loadGrokConfig();
+  if (!hasHelpArg(args)) {
+    requireKey(config);
+    ensureGrokBuildConfig(config);
+  }
+
+  const injected = [];
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--model"], ["-m"]) && config.model) {
+    injected.push("-m", grokModelAlias);
+  }
+
+  const env = {
+    ...publicEnv(config),
+    XAI_API_KEY: "",
+    GROK_API_KEY: "",
+    GROK_BASE_URL: openAIResponsesBase(config.baseUrl),
+    OPENAI_BASE_URL: openAIResponsesBase(config.baseUrl)
+  };
+
+  const grokBin = executableOnPath("grok");
+  if (grokBin) {
+    spawnBin(grokBin, [...injected, ...args], env);
+    return;
+  }
+
+  const npxBin = executableOnPath("npx");
+  if (!npxBin) {
+    fail("Grok CLI is not installed and npx is not available for the @xai-official/grok fallback.");
+  }
+  spawnBin(npxBin, ["--yes", "@xai-official/grok", ...injected, ...args], env);
+}
+
+async function launchGrokCli(args) {
+  const config = hasHelpArg(args) ? loadBridgeConfig() : await loadGrokConfig();
+  if (!hasHelpArg(args)) requireKey(config);
+
+  if (hasHelpArg(args) && executableOnPath("grok")) {
+    spawnTool("grok", args, publicEnv(config));
+    return;
+  }
+
+  const injected = [];
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--model"], ["-m"]) && config.model) {
+    injected.push("--model", config.model);
+  }
+
+  launchClaude([...injected, ...args], config);
+}
+
+function launchAider(args) {
+  const config = loadBridgeConfig();
+  if (!hasHelpArg(args)) requireKey(config);
+
+  const injected = [];
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--model"]) && config.model) {
+    injected.push("--model", `openai/${config.model}`);
+  }
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--openai-api-base"])) {
+    injected.push("--openai-api-base", openAIChatBase(config.baseUrl));
+  }
+  const effort = reasoningForCli(config.reasoning);
+  if (!hasHelpArg(args) && effort && !hasAnyFlag(args, ["--reasoning-effort"])) {
+    injected.push("--reasoning-effort", effort);
+  }
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--show-model-warnings", "--no-show-model-warnings"])) {
+    injected.push("--no-show-model-warnings");
+  }
+  if (
+    !hasHelpArg(args) &&
+    !hasAnyFlag(args, ["--check-model-accepts-settings", "--no-check-model-accepts-settings"])
+  ) {
+    injected.push("--no-check-model-accepts-settings");
+  }
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--check-update", "--no-check-update"])) {
+    injected.push("--no-check-update");
+  }
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--show-release-notes", "--no-show-release-notes"])) {
+    injected.push("--no-show-release-notes");
+  }
+
+  const env = {
+    ...publicEnv(config),
+    OPENAI_API_KEY: config.apiKey,
+    OPENAI_API_BASE: openAIChatBase(config.baseUrl),
+    OPENAI_BASE_URL: openAIChatBase(config.baseUrl),
+    AIDER_MODEL: `openai/${config.model}`,
+    AIDER_OPENAI_API_KEY: config.apiKey,
+    AIDER_OPENAI_API_BASE: openAIChatBase(config.baseUrl),
+    AIDER_REASONING_EFFORT: reasoningForCli(config.reasoning),
+    AIDER_ANALYTICS: "false"
+  };
+
+  const aiderBin = executableOnPath("aider");
+  if (aiderBin) {
+    spawnBin(aiderBin, [...injected, ...args], env);
+    return;
+  }
+
+  const uvxBin = executableOnPath("uvx");
+  if (!uvxBin) {
+    fail("aider is not installed and uvx is not available for the aider-chat fallback.");
+  }
+  spawnBin(uvxBin, ["--python", "3.12", "--from", "aider-chat", "aider", ...injected, ...args], env);
+}
+
+function modelFamily(model) {
+  const value = model.toLowerCase();
+  if (value.includes("claude")) return "Claude";
+  if (value.includes("grok")) return "Grok";
+  if (value.includes("deepseek")) return "DeepSeek";
+  if (value.includes("gemini")) return "Gemini";
+  if (value.includes("glm") || value.includes("z.ai") || value.includes("zai")) return "GLM";
+  if (value.includes("qwen")) return "Qwen";
+  if (value.includes("gpt") || value.includes("o1") || value.includes("o3") || value.includes("o4")) return "GPT";
+  return "External";
+}
+
+function codexModelEntry(model, index, currentModel, reasoning) {
+  const family = modelFamily(model);
+  const isCurrent = model === currentModel;
+  const reasoningLevels = [
+    { effort: "low", description: "Fast responses with lighter reasoning" },
+    { effort: "medium", description: "Balanced reasoning for everyday tasks" },
+    { effort: "high", description: "Greater reasoning depth for complex tasks" },
+    { effort: "xhigh", description: "Maximum available reasoning depth" }
+  ];
+
+  return {
+    slug: model,
+    display_name: model,
+    description: `${family} model served by ZaneLLM.`,
+    default_reasoning_level: reasoningForCli(reasoning) || "medium",
+    supported_reasoning_levels: reasoningLevels,
+    shell_type: "shell_command",
+    visibility: "list",
+    supported_in_api: true,
+    priority: isCurrent ? 1000 : Math.max(1, 900 - index),
+    additional_speed_tiers: ["fast"],
+    service_tiers: [
+      {
+        id: "priority",
+        name: "Fast",
+        description: "Use provider fast/priority routing when supported"
+      }
+    ],
+    availability_nux: null,
+    upgrade: null,
+    base_instructions: "",
+    supports_reasoning_summaries: true,
+    default_reasoning_summary: "none",
+    support_verbosity: true,
+    default_verbosity: "medium",
+    apply_patch_tool_type: "freeform",
+    web_search_tool_type: "text_and_image",
+    truncation_policy: { mode: "tokens", limit: 10000 },
+    supports_parallel_tool_calls: true,
+    supports_image_detail_original: true,
+    context_window: 200000,
+    max_context_window: 200000,
+    effective_context_window_percent: 95,
+    experimental_supported_tools: [],
+    input_modalities: ["text", "image"],
+    supports_search_tool: true,
+    use_responses_lite: false
+  };
+}
+
+async function ensureCodexCatalog(config) {
+  let models = [config.model];
+  try {
+    models = await fetchModels(config);
+    if (!models.includes(config.model)) models.unshift(config.model);
+  } catch {
+    models = [config.model];
+  }
+
+  const cleanModels = Array.from(new Set(models.map(cleanModelId).filter(Boolean)));
+  const orderedModels = [
+    config.model,
+    ...cleanModels.filter((model) => model !== config.model),
+  ].filter(Boolean);
+  writeJson(codexCatalogFile, {
+    models: orderedModels.map((model, index) => codexModelEntry(model, index, config.model, config.reasoning))
+  });
+}
+
+async function launchCodex(args) {
+  const config = loadBridgeConfig();
+  if (!hasHelpArg(args)) {
+    requireKey(config);
+    await ensureCodexCatalog(config);
+  }
+
+  const injected = hasHelpArg(args)
+    ? []
+    : [
+        "-c",
+        'model_provider="zanellm"',
+        "-c",
+        `model="${tomlString(config.model)}"`,
+        "-c",
+        'model_providers.zanellm.name="ZaneLLM"',
+        "-c",
+        `model_providers.zanellm.base_url="${tomlString(openAIResponsesBase(config.baseUrl))}"`,
+        "-c",
+        'model_providers.zanellm.env_key="ZANELLM_API_KEY"',
+        "-c",
+        'model_providers.zanellm.wire_api="responses"',
+        "-c",
+        `model_reasoning_effort="${tomlString(reasoningForCli(config.reasoning) || "medium")}"`,
+        "-c",
+        `model_catalog_json="${tomlString(codexCatalogFile)}"`,
+        "-c",
+        "model_context_window=200000",
+        "-c",
+        "model_auto_compact_token_limit=180000"
+      ];
+
+  spawnTool("codex", [...injected, ...args], publicEnv(config));
+}
+
+function tomlString(value) {
+  return String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+}
+
+async function fetchModels(config) {
+  requireKey(config);
+  const response = await fetch(`${openAIChatBase(config.baseUrl)}/models`, {
+    headers: {
+      authorization: `Bearer ${config.apiKey}`,
+      "x-api-key": config.apiKey
+    }
+  });
+  if (!response.ok) {
+    throw new Error(`${response.status} ${response.statusText}`);
+  }
+  const body = await response.json();
+  const rawModels = Array.isArray(body) ? body : body.data || [];
+  return Array.from(new Set(rawModels
+    .map((model) => (typeof model === "string" ? model : model.id || model.name || ""))
+    .map(cleanModelId)
+    .filter(Boolean)))
+    .sort((a, b) => a.localeCompare(b));
+}
+
+function cleanModelId(value) {
+  return String(value)
+    .replace(/\x1b\[[0-9;]*m/g, "")
+    .replace(/\[[0-9;]*m\]/g, "")
+    .trim();
+}
+
+function pickGrokModel(models, fallback) {
+  const grokModels = models.filter((model) => model.toLowerCase().includes("grok"));
+  const preferences = [
+    /grok-build/i,
+    /grok.*4\.3.*fast/i,
+    /grok.*4\.20.*fast/i,
+    /grok.*multi-agent.*medium/i,
+    /grok.*multi-agent.*high/i,
+    /grok.*4/i,
+    /grok/i
+  ];
+
+  for (const pattern of preferences) {
+    const match = grokModels.find((model) => pattern.test(model));
+    if (match) return match;
+  }
+
+  return grokModels[0] || fallback;
+}
+
+async function loadGrokConfig() {
+  const config = loadBridgeConfig();
+  if (config.model.toLowerCase().includes("grok")) return config;
+
+  try {
+    const models = await fetchModels(config);
+    return { ...config, model: pickGrokModel(models, config.model) };
+  } catch {
+    return config;
+  }
+}
+
+function openAIChatBaseWithoutV1(rawBaseUrl) {
+  return openAIChatBase(rawBaseUrl).replace(/\/v1$/i, "");
+}
+
+async function ensureCompatCliConfig(config) {
+  let models = [config.model];
+  try {
+    models = await fetchModels(config);
+    if (!models.includes(config.model)) models.unshift(config.model);
+  } catch {
+    models = [config.model];
+  }
+
+  const modelMap = {};
+  for (const model of models) {
+    modelMap[model] = { name: model };
+  }
+
+  writeJson(opencodeConfigFile, {
+    $schema: "https://opencode.ai/config.json",
+    model: `zanellm/${config.model}`,
+    provider: {
+      zanellm: {
+        npm: "@ai-sdk/openai-compatible",
+        name: "ZaneLLM",
+        options: {
+          baseURL: openAIChatBase(config.baseUrl),
+          apiKey: "{env:ZANELLM_API_KEY}"
+        },
+        models: modelMap
+      }
+    }
+  });
+}
+
+function yamlString(value) {
+  return `"${String(value).replace(/\\/g, "\\\\").replace(/"/g, '\\"')}"`;
+}
+
+async function ensureContinueConfig(config) {
+  let models = [config.model];
+  try {
+    models = await fetchModels(config);
+    if (!models.includes(config.model)) models.unshift(config.model);
+  } catch {
+    models = [config.model];
+  }
+
+  const lines = [
+    "name: ZaneLLM",
+    "version: 0.1.0",
+    "schema: v1",
+    "models:"
+  ];
+
+  for (const model of Array.from(new Set(models)).filter(Boolean)) {
+    lines.push(
+      `  - name: ${yamlString(model)}`,
+      "    provider: openai",
+      `    model: ${yamlString(model)}`,
+      `    apiBase: ${yamlString(openAIChatBase(config.baseUrl))}`,
+      "    apiKey: ${{ secrets.ZANELLM_API_KEY }}",
+      "    useResponsesApi: false",
+      "    roles:",
+      "      - chat",
+      "      - edit",
+      "      - apply"
+    );
+  }
+
+  ensureDir(path.dirname(continueConfigFile));
+  fs.writeFileSync(continueConfigFile, `${lines.join("\n")}\n`, { mode: 0o600 });
+}
+
+async function launchContinue(args) {
+  const config = loadBridgeConfig();
+  if (!hasHelpArg(args)) requireKey(config);
+  if (!hasHelpArg(args)) await ensureContinueConfig(config);
+
+  const injected = [];
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--config"])) {
+    injected.push("--config", continueConfigFile);
+  }
+
+  const env = {
+    ...publicEnv(config),
+    ZANELLM_API_KEY: config.apiKey,
+    OPENAI_API_KEY: config.apiKey
+  };
+
+  const cnBin = executableOnPath("cn");
+  if (cnBin) {
+    spawnBin(cnBin, [...injected, ...args], env);
+    return;
+  }
+
+  const npxBin = executableOnPath("npx");
+  if (!npxBin) {
+    fail("Continue CLI is not installed and npx is not available for the @continuedev/cli fallback.");
+  }
+  spawnBin(npxBin, ["--yes", "@continuedev/cli", ...injected, ...args], env);
+}
+
+async function launchCompatCli(args) {
+  const config = loadBridgeConfig();
+  if (!hasHelpArg(args)) requireKey(config);
+  if (!hasHelpArg(args)) await ensureCompatCliConfig(config);
+
+  const injected = [];
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--model"], ["-m"]) && config.model) {
+    injected.push("--model", `zanellm/${config.model}`);
+  }
+
+  spawnTool("opencode", [...injected, ...args], {
+    ...publicEnv(config),
+    OPENCODE_CONFIG: opencodeConfigFile,
+    OPENCODE_DISABLE_AUTOUPDATE: "1"
+  });
+}
+
+function writeHermesConfig(config) {
+  ensureDir(hermesHome);
+  const hermesConfigFile = path.join(hermesHome, "config.yaml");
+  const yaml = [
+    "model:",
+    `  default: "${config.model.replace(/"/g, '\\"')}"`,
+    "  provider: custom",
+    `  base_url: "${openAIChatBase(config.baseUrl).replace(/"/g, '\\"')}"`,
+    "terminal:",
+    '  cwd: "."',
+    "display:",
+    "  reasoning: off",
+    "max_turns: 60",
+    ""
+  ].join("\n");
+  fs.writeFileSync(hermesConfigFile, yaml, { mode: 0o600 });
+}
+
+function launchHermes(args) {
+  const config = loadBridgeConfig();
+  if (!hasHelpArg(args)) {
+    requireKey(config);
+    writeHermesConfig(config);
+  }
+
+  const injected = [];
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--model"], ["-m"]) && config.model) {
+    injected.push("--model", config.model);
+  }
+  if (!hasHelpArg(args) && !hasAnyFlag(args, ["--provider"])) {
+    injected.push("--provider", "custom");
+  }
+
+  spawnTool("hermes", [...injected, ...args], {
+    ...publicEnv(config),
+    HERMES_HOME: hermesHome,
+    OPENAI_BASE_URL: openAIChatBase(config.baseUrl),
+    OPENAI_API_KEY: config.apiKey
+  });
+}
+
+function launchGoose(args) {
+  const config = loadBridgeConfig();
+  if (!hasHelpArg(args)) requireKey(config);
+  if (!executableOnPath("goose")) {
+    fail("goose is not installed. Install goose first, then run zanegoose again.");
+  }
+
+  spawnTool("goose", args, {
+    ...publicEnv(config),
+    GOOSE_PROVIDER: "openai",
+    GOOSE_MODEL: config.model,
+    GOOSE_PROVIDER__TYPE: "openai",
+    GOOSE_PROVIDER__HOST: openAIChatBase(config.baseUrl),
+    GOOSE_PROVIDER__API_KEY: config.apiKey,
+    GOOSE_CLI_SHOW_THINKING: config.reasoning === "off" ? "" : "1",
+    GOOSE_DISABLE_TELEMETRY: "1"
+  });
+}
+
+async function launchzanecode(args, commandName = "zanecode") {
+  install([], { quiet: true });
+  const config = await ensureBootstrapped(args, commandName);
+  if (!fs.existsSync(zaneCodeBin)) {
+    fail(`zanecode is missing at ${zaneCodeBin}.`);
+  }
+  spawnBin(zaneCodeBin, args, {
+    ...publicEnv(config),
+    ZANE_CLI_NAME: commandName
+  });
+}
+
+async function launchZaneApp(args) {
+  install([], { quiet: true });
+  const config = await ensureBootstrapped(args, "Zane App");
+  if (!fs.existsSync(zaneAppBin)) {
+    fail(`Zane App is missing at ${zaneAppBin}.`);
+  }
+  spawnBin(zaneAppBin, args, publicEnv(config));
+}
+
+async function launchZaneChat(args) {
+  install([], { quiet: true });
+  const config = await ensureBootstrapped(args, "ZaneChat");
+  if (!fs.existsSync(zaneChatBin)) {
+    fail(`ZaneChat launcher is missing at ${zaneChatBin}.`);
+  }
+  const { tokens, apiConfigs } = zaneProviderConfigs(config);
+  spawnBin(zaneChatBin, args, {
+    ...publicEnv(config),
+    PATH: fs.existsSync(repoVenvBin)
+      ? [repoVenvBin, process.env.PATH || ""].filter(Boolean).join(path.delimiter)
+      : process.env.PATH || "",
+    DATA_DIR: process.env.DATA_DIR || zaneChatDataDir,
+    WEBUI_AUTH: process.env.WEBUI_AUTH || "False",
+    PYTHONPATH: [path.join(repoRoot, "backend"), process.env.PYTHONPATH || ""].filter(Boolean).join(path.delimiter),
+    ZANE_ARTEMISIA_ACCESS_TOKEN: config.artemisiaAccessToken,
+    ARTEMISIAHUB_ACCESS_TOKEN: config.artemisiaAccessToken,
+    ZANE_ARTEMISIA_ACCOUNT_ID: config.newApiUserId,
+    NEWAPI_ACCESS_TOKEN: config.artemisiaAccessToken,
+    ZANE_NEWAPI_USER_ID: config.newApiUserId,
+    NEWAPI_USER_ID: config.newApiUserId,
+    NEWAPI_BASE_URL: config.upstreamRootBaseUrl,
+    OPENAI_API_BASE_URLS: tokens.map(() => config.upstreamBaseUrl).join(";"),
+    OPENAI_API_KEYS: tokens.map((provider) => provider.apiKey).join(";"),
+    OPENAI_API_CONFIGS: JSON.stringify(apiConfigs)
+  });
+}
+
+function unsupportedGemini() {
+  console.error(yellow("Gemini CLI does not currently expose a full OpenAI-compatible provider override."));
+  console.error("Use zanecodex, zanecc, zaneopencode, or zanehermes for ZaneLLM-backed agent runs.");
+  console.error("The normal 'gemini' command is untouched.");
+  process.exit(2);
+}
+
+function unsupportedCursor() {
+  console.error(yellow("Cursor CLI/editor does not expose a complete CLI provider override for the coding agent surface."));
+  console.error("The normal Cursor app stays untouched. Use zanecodex, zanecc, zaneopencode, or zanehermes.");
+  process.exit(2);
+}
+
+function install(args = [], options = {}) {
+  const quiet = options.quiet || args.includes("--quiet");
+  const configCreated = createDefaultConfigIfNeeded();
+  ensureDir(localBinDir);
+
+  const previousState = readJson(stateFile, {});
+  const oldBackups = Array.isArray(previousState.backups) ? previousState.backups : [];
+  const backups = [...oldBackups];
+  const links = [];
+  const timestamp = new Date().toISOString().replace(/[-:]/g, "").replace(/\..+$/, "Z");
+
+  for (const command of bridgeCommands) {
+    const linkPath = path.join(localBinDir, command);
+    const target = __filename;
+    let backupPath = "";
+    try {
+      if (fs.existsSync(linkPath) || fs.lstatSync(linkPath).isSymbolicLink()) {
+        const stat = fs.lstatSync(linkPath);
+        if (stat.isSymbolicLink()) {
+          const currentTarget = path.resolve(path.dirname(linkPath), fs.readlinkSync(linkPath));
+          if (currentTarget === target) {
+            links.push({ command, path: linkPath, target });
+            continue;
+          }
+        }
+        backupPath = `${linkPath}.zane-bridge-backup-${timestamp}`;
+        fs.renameSync(linkPath, backupPath);
+        backups.push({ command, original: linkPath, backup: backupPath });
+      }
+    } catch {
+      // lstat throws for missing files; that is fine.
+    }
+
+    try {
+      fs.symlinkSync(target, linkPath);
+    } catch (error) {
+      fail(`could not create ${linkPath}: ${error.message}`);
+    }
+    links.push({ command, path: linkPath, target, backupPath });
+  }
+
+  writeJson(stateFile, {
+    version: "0.1.0",
+    packageRoot,
+    installedAt: new Date().toISOString(),
+    target: __filename,
+    configCreated,
+    links,
+    backups
+  });
+
+  if (!quiet) {
+    console.log(green("Installed Zane CLI bridge."));
+    console.log(`Commands: ${bridgeCommands.map((c) => cyan(c)).join(", ")}`);
+    console.log(`Config: ${configFile}`);
+    console.log(`Credentials: ${credentialsFile}`);
+    console.log(`Restore: ${cyan("zane restore")}`);
+  }
+}
+
+function restore(args) {
+  if (args.includes("--help") || args.includes("-h")) {
+    restoreHelp();
+    return;
+  }
+
+  const purgeConfig = args.includes("--purge-config");
+  const removeManager = args.includes("--remove-manager") || args.includes("--all");
+  const state = readJson(stateFile, {});
+  const knownTarget = state.target || __filename;
+  const linkRecords = Array.isArray(state.links)
+    ? state.links
+    : bridgeCommands.map((command) => ({ command, path: path.join(localBinDir, command), target: knownTarget }));
+  let removed = 0;
+  let restored = 0;
+
+  for (const record of linkRecords) {
+    if (!removeManager && record.command === "zane") continue;
+    const linkPath = record.path || path.join(localBinDir, record.command);
+    try {
+      const stat = fs.lstatSync(linkPath);
+      if (stat.isSymbolicLink()) {
+        const target = path.resolve(path.dirname(linkPath), fs.readlinkSync(linkPath));
+        if (target === knownTarget || target === __filename) {
+          fs.unlinkSync(linkPath);
+          removed += 1;
+        }
+      }
+    } catch {
+      // missing is already restored
+    }
+  }
+
+  const backups = Array.isArray(state.backups) ? state.backups : [];
+  for (const backup of backups.reverse()) {
+    if (!removeManager && backup.command === "zane") continue;
+    try {
+      if (!fs.existsSync(backup.original) && fs.existsSync(backup.backup)) {
+        fs.renameSync(backup.backup, backup.original);
+        restored += 1;
+      }
+    } catch {
+      // leave backup in place if restore failed
+    }
+  }
+
+  const remainingLinks = removeManager
+    ? []
+    : linkRecords.filter((record) => record.command === "zane");
+  if (remainingLinks.length > 0) {
+    writeJson(stateFile, {
+      ...state,
+      restoredAt: new Date().toISOString(),
+      links: remainingLinks,
+      backups: backups.filter((backup) => backup.command === "zane")
+    });
+  } else {
+    try {
+      fs.unlinkSync(stateFile);
+    } catch {
+      // optional
+    }
+  }
+
+  for (const file of [opencodeConfigFile, continueConfigFile, codexCatalogFile]) {
+    try {
+      fs.unlinkSync(file);
+    } catch {
+      // optional
+    }
+  }
+  removeManagedBlock(grokConfigFile, "grok-model");
+
+  if (purgeConfig) {
+    for (const target of [configFile]) {
+      try {
+        fs.unlinkSync(target);
+      } catch {
+        // optional
+      }
+    }
+    try {
+      fs.rmSync(hermesHome, { recursive: true, force: true });
+    } catch {
+      // optional
+    }
+  }
+
+  console.log(green("Restored Zane CLI bridge install."));
+  console.log(`Removed wrapper links: ${removed}`);
+  console.log(`Restored backups: ${restored}`);
+  if (!removeManager) {
+    console.log(dim("Kept the zane manager command. Run 'zane install' or 'zanei' to recreate wrappers."));
+  }
+  if (!purgeConfig) {
+    console.log(dim(`Kept config and credentials in ${configDir}. Use --purge-config to remove generated config.`));
+  }
+}
+
+function restoreHelp() {
+  console.log("Usage:");
+  console.log("  zane restore");
+  console.log("  zane restore --remove-manager");
+  console.log("  zane restore --purge-config");
+  console.log("");
+  console.log("Removes Zane wrapper links and restores any command backups made by zane install.");
+  console.log("By default, keeps the zane manager command so you can run 'zane install' or 'zanei' again.");
+  console.log("Credentials are kept unless you delete them yourself.");
+}
+
+function status() {
+  const config = loadBridgeConfig();
+  console.log(`${cyan("Zane CLI Bridge")} ${dim("0.1.0")}`);
+  console.log(`base:       ${config.baseUrl}`);
+  console.log(`openai:     ${openAIChatBase(config.baseUrl)}`);
+  console.log(`responses:  ${openAIResponsesBase(config.baseUrl)}`);
+  console.log(`anthropic:  ${anthropicBase(config.baseUrl)}`);
+  console.log(`upstream:   ${config.upstreamBaseUrl}`);
+  console.log(`model:      ${config.model}`);
+  console.log(`reasoning:  ${config.reasoning}`);
+  console.log(`key:        ${config.keyPresent ? green("present") : red("missing")}`);
+  console.log(`auth token: ${config.artemisiaAccessToken ? green("present") : dim("not stored")}`);
+  console.log(`account id: ${config.newApiUserId || dim("auto")}`);
+  console.log(`providers:  ${config.providerTokens.length ? config.providerTokens.map((provider) => provider.group || "default").join(", ") : dim("single")}`);
+  console.log("");
+  console.log("Wrappers:");
+  for (const command of bridgeCommands) {
+    const linkPath = path.join(localBinDir, command);
+    let value = red("missing");
+    try {
+      const stat = fs.lstatSync(linkPath);
+      if (stat.isSymbolicLink()) value = `${green("linked")} -> ${fs.readlinkSync(linkPath)}`;
+      else value = yellow("exists, not bridge symlink");
+    } catch {
+      // missing
+    }
+    console.log(`  ${command.padEnd(13)} ${value}`);
+  }
+  console.log("");
+  console.log("Upstream tools:");
+  for (const [command, upstream] of Object.entries(launcherByCommand)) {
+    const bin = executableOnPath(upstream);
+    console.log(`  ${command.padEnd(13)} ${upstream.padEnd(9)} ${bin || red("not found")}`);
+  }
+}
+
+async function models(args) {
+  const config = loadBridgeConfig();
+  const filter = (args[0] || "").toLowerCase();
+  try {
+    const allModels = await fetchModels(config);
+    const shown = filter ? allModels.filter((model) => model.toLowerCase().includes(filter)) : allModels;
+    for (const model of shown) console.log(model);
+    if (shown.length === 0) console.log(dim("No matching models."));
+  } catch (error) {
+    fail(`could not fetch models from ${openAIChatBase(config.baseUrl)}/models: ${error.message}`);
+  }
+}
+
+async function useModel(args) {
+  const query = cleanModelId(args.join(" ").trim());
+  if (!query) {
+    console.log("Usage:");
+    console.log("  zane use <model-id>");
+    console.log("  zane model <model-id>");
+    console.log("");
+    console.log("Run 'zane models' to list available model ids.");
+    return;
+  }
+
+  const config = loadBridgeConfig();
+  let allModels = [];
+  try {
+    allModels = await fetchModels(config);
+  } catch (error) {
+    fail(`could not fetch models before changing default: ${error.message}`);
+  }
+
+  const exact = allModels.find((model) => model === query);
+  const lowerQuery = query.toLowerCase();
+  const matches = allModels.filter((model) => model.toLowerCase().includes(lowerQuery));
+  const selected = exact || (matches.length === 1 ? matches[0] : "");
+
+  if (!selected) {
+    console.log(`Multiple or no models matched '${query}'.`);
+    for (const model of matches.slice(0, 20)) console.log(model);
+    if (matches.length > 20) console.log(dim(`... ${matches.length - 20} more`));
+    console.log("");
+    console.log("Use the exact model id, for example:");
+    if (matches[0]) console.log(`  zane use ${matches[0]}`);
+    process.exit(matches.length ? 2 : 1);
+  }
+
+  updateConfig({ model: selected });
+  console.log(`Default ZaneLLM model set to ${green(selected)}.`);
+  console.log("New wrapper sessions will use it. Existing CLI sessions keep their current model.");
+}
+
+async function doctor() {
+  status();
+  const config = loadBridgeConfig();
+  console.log("");
+  try {
+    const allModels = await fetchModels(config);
+    console.log(`${green("gateway models:")} ${allModels.length}`);
+  } catch (error) {
+    console.log(`${red("gateway models:")} ${error.message}`);
+  }
+}
+
+function sanitizeUsageValue(value) {
+  if (Array.isArray(value)) return value.map(sanitizeUsageValue);
+  if (!value || typeof value !== "object") return value;
+  const blocked = new Set(["api_key", "apikey", "key", "access_key", "secret", "password", "authorization"]);
+  const out = {};
+  for (const [key, item] of Object.entries(value)) {
+    if (blocked.has(key.toLowerCase().replace(/-/g, "_"))) continue;
+    out[key] = sanitizeUsageValue(item);
+  }
+  return out;
+}
+
+function unwrapData(value) {
+  if (value && typeof value === "object" && Object.prototype.hasOwnProperty.call(value, "data")) {
+    return value.data;
+  }
+  return value;
+}
+
+function numberField(record, keys) {
+  if (!record || typeof record !== "object") return undefined;
+  for (const key of keys) {
+    const value = record[key];
+    if (typeof value === "number" && Number.isFinite(value)) return value;
+    if (typeof value === "string" && value.trim()) {
+      const parsed = Number(value);
+      if (Number.isFinite(parsed)) return parsed;
+    }
+  }
+  return undefined;
+}
+
+function formatUsageNumber(value) {
+  if (value === undefined || value === null || Number.isNaN(Number(value))) return dim("not reported");
+  return new Intl.NumberFormat().format(Number(value));
+}
+
+async function fetchZaneUsageFromGateway(config) {
+  const urls = [
+    `${rootBaseUrl(config.baseUrl)}/api/v1/zane/usage`,
+    "http://127.0.0.1:8080/api/v1/zane/usage",
+    "http://localhost:8080/api/v1/zane/usage"
+  ];
+  let lastError;
+  for (const url of Array.from(new Set(urls))) {
+    try {
+      return await fetchJsonChecked(url);
+    } catch (error) {
+      lastError = error;
+    }
+  }
+  throw lastError || new Error("ZaneChat usage endpoint is unavailable");
+}
+
+async function fetchZaneUsageDirect(config) {
+  const root = config.upstreamRootBaseUrl || newApiRootBase(config.upstreamBaseUrl);
+  if (config.artemisiaAccessToken) {
+    let profile = null;
+    let tokens = null;
+    let models = null;
+
+    try {
+      profile = sanitizeUsageValue(
+        await newApiRequest(config.artemisiaAccessToken, config.newApiUserId, root, "GET", "/api/user/self")
+      );
+    } catch {
+      profile = null;
+    }
+
+    try {
+      tokens = listNewApiTokens(config.artemisiaAccessToken, config.newApiUserId, root)
+        .then((items) => items.map(sanitizeUsageValue));
+      tokens = await tokens;
+    } catch {
+      tokens = null;
+    }
+
+    try {
+      models = sanitizeUsageValue(
+        await newApiRequest(config.artemisiaAccessToken, config.newApiUserId, root, "GET", "/api/models")
+      );
+    } catch {
+      models = null;
+    }
+
+    if (profile || tokens || models) {
+      return {
+        configured: true,
+        account: {
+          base_url: root,
+          user_id: config.newApiUserId || null,
+          profile_url: profile ? `${root}/api/user/self` : null,
+          token_list_url: tokens ? `${root}/api/token/` : null,
+          models_url: models ? `${root}/api/models` : null,
+          profile,
+          tokens,
+          models
+        }
+      };
+    }
+  }
+
+  const provider = config.providerTokens[0] || null;
+  const providerKey = provider?.apiKey || (!config.artemisiaAccessToken ? config.apiKey : "");
+  if (!providerKey) throw new Error("No artemisiahub access token or provider token is configured");
+
+  const usageUrl = `${root}/api/usage/token`;
+  const body = await fetchJsonChecked(usageUrl, {
+    headers: {
+      Authorization: `Bearer ${providerKey}`
+    }
+  });
+  return {
+    configured: true,
+    provider: {
+      provider: provider?.group || "artemisiahub",
+      base_url: config.upstreamBaseUrl,
+      usage_url: usageUrl,
+      usage: sanitizeUsageValue(body)
+    }
+  };
+}
+
+function printUsage(payload) {
+  const account = payload.account;
+  const profile = unwrapData(account?.profile);
+  const provider = payload.provider;
+  const providerUsage = unwrapData(provider?.usage);
+  const root = profile && typeof profile === "object" ? profile : providerUsage;
+
+  console.log(`${cyan("Zane usage")}`);
+  if (account) {
+    console.log(`source:     artemisiahub profile`);
+    if (profile && typeof profile === "object") {
+      const username = profile.username || profile.display_name || profile.name || "";
+      const email = profile.email || "";
+      const userId = profile.id || account.user_id || "";
+      if (username || email || userId) {
+        console.log(`user:       ${[username, email && `<${email}>`, userId && `(id ${userId})`].filter(Boolean).join(" ")}`);
+      }
+      if (profile.group) console.log(`group:      ${profile.group}`);
+    }
+  } else if (provider) {
+    console.log(`source:     ${provider.provider || "provider token"}`);
+  }
+
+  if (root && typeof root === "object") {
+    console.log(`quota:      ${formatUsageNumber(numberField(root, ["quota", "total_granted", "granted_quota", "total_quota"]))}`);
+    console.log(`used:       ${formatUsageNumber(numberField(root, ["used_quota", "total_used", "used", "quota_used"]))}`);
+    console.log(`available:  ${formatUsageNumber(numberField(root, ["total_available", "available_quota", "remaining_quota", "remain_quota", "balance"]))}`);
+    const requests = numberField(root, ["request_count", "requests", "total_requests"]);
+    if (requests !== undefined) console.log(`requests:   ${formatUsageNumber(requests)}`);
+    if (root.unlimited_quota !== undefined) console.log(`unlimited:  ${String(Boolean(root.unlimited_quota))}`);
+  }
+
+  if (Array.isArray(account?.tokens)) {
+    console.log(`tokens:     ${account.tokens.length}`);
+    for (const token of account.tokens.slice(0, 8)) {
+      const name = token.name || token.token_name || token.id || "token";
+      const group = token.group ? ` (${token.group})` : "";
+      const remain = numberField(token, ["remain_quota", "total_available", "available_quota"]);
+      console.log(`  ${String(name)}${group}: ${formatUsageNumber(remain)}`);
+    }
+    if (account.tokens.length > 8) console.log(dim(`  ... ${account.tokens.length - 8} more`));
+  }
+}
+
+async function usage(args) {
+  const config = loadBridgeConfig();
+  let payload;
+  try {
+    payload = await fetchZaneUsageDirect(config);
+  } catch (directError) {
+    try {
+      payload = await fetchZaneUsageFromGateway(config);
+    } catch (gatewayError) {
+      fail(`could not fetch usage: ${directError.message}; gateway fallback: ${gatewayError.message}`);
+    }
+  }
+
+  if (args.includes("--json")) {
+    console.log(JSON.stringify(sanitizeUsageValue(payload), null, 2));
+    return;
+  }
+
+  if (!payload?.configured) {
+    console.log(yellow(payload?.message || "Usage is not configured yet. Run zanecode once to set up artemisiahub."));
+    return;
+  }
+  printUsage(payload);
+}
+
+function apps() {
+  const config = loadBridgeConfig();
+  console.log(`${cyan("ZaneLLM app bridge")}`);
+  console.log("");
+  console.log("Universal endpoints:");
+  console.log(`  OpenAI-compatible chat:  ${openAIChatBase(config.baseUrl)}`);
+  console.log(`  OpenAI Responses:        ${openAIResponsesBase(config.baseUrl)}`);
+  console.log(`  Anthropic-compatible:    ${anthropicBase(config.baseUrl)}`);
+  console.log(`  artemisiahub upstream:   ${config.upstreamBaseUrl}`);
+  console.log(`  Model id:                ${config.model}`);
+  console.log("");
+  console.log("Direct wrappers:");
+  console.log("  zanechat       ZaneChat web server via artemisiahub");
+  console.log("  zanecli        Zane first-party CLI/TUI via ZaneLLM");
+  console.log("  zanecode       Alias for zanecli");
+  console.log("  zaneapp        Zane App desktop UI via ZaneLLM");
+  console.log("  zanecc          Claude Code via Anthropic-compatible API");
+  console.log("  zanecodex       Codex CLI via Responses API");
+  console.log("  zanegrok        Grok Build CLI via generated ZaneLLM model profile");
+  console.log("  zanegrokcli     Claude-Code style Grok run via ZaneLLM");
+  console.log("  zaneopencode    Compatible coding CLI via OpenAI-compatible API");
+  console.log("  zaneaider       Aider via OpenAI-compatible API");
+  console.log("  zanecontinue    Continue CLI via generated config");
+  console.log("  zanehermes      Hermes via OpenAI-compatible API");
+  console.log("  zanegoose       Goose via OpenAI-compatible env vars");
+  console.log("");
+  console.log("GUI/TUI profiles:");
+  console.log("  Cline/Roo/Continue IDE: choose OpenAI Compatible");
+  console.log(`  Base URL: ${openAIChatBase(config.baseUrl)}`);
+  console.log("  API key: use your ZaneLLM key");
+  console.log(`  Model ID: ${config.model} or any model from ${cyan("zane models")}`);
+  console.log("");
+  console.log("Shell exports for any OpenAI-compatible CLI:");
+  console.log(`  export OPENAI_BASE_URL=${shellQuote(openAIChatBase(config.baseUrl))}`);
+  console.log(`  export OPENAI_API_BASE=${shellQuote(openAIChatBase(config.baseUrl))}`);
+  console.log("  export OPENAI_API_KEY=<your ZaneLLM key>");
+}
+
+function help() {
+  console.log(`${cyan("Zane CLI Bridge")}`);
+  console.log("");
+  console.log("Usage:");
+  console.log("  zane install | zane i | zanei");
+  console.log("  zane setup [--force]     Prompt for an artemisiahub access token and configure everything");
+  console.log("  zane setup --account-id 1 --token-name zanecode");
+  console.log("  zane update | zaneupdate Refresh ModelSquare groups/models from artemisiahub");
+  console.log("  zane restore | zane disable | zane d | zaned | zanedisable");
+  console.log("  zane delete               Remove wrapper links and the zane manager link");
+  console.log("  zane restore [--purge-config] [--remove-manager]");
+  console.log("  zane apps                 Show endpoints and supported CLI/TUI/GUI setup");
+  console.log("  zane status               Show config and installed wrapper state");
+  console.log("  zane usage [--json]       Show artemisiahub profile/token usage");
+  console.log("  zane models [filter]      Fetch models from ZaneLLM");
+  console.log("  zane use <model-id>       Set default model for all wrappers");
+  console.log("  zane doctor               Check wrappers and gateway model fetch");
+  console.log("  zane chat [...args]       Start ZaneChat web server");
+  console.log("  zane cli [...args]        Zane first-party CLI/TUI");
+  console.log("  zane code [...args]       zanecode first-party CLI/TUI");
+  console.log("  zane app [...args]        Zane App desktop UI");
+  console.log("");
+  console.log("Wrappers:");
+  console.log("  zanechat [...args]        ZaneChat web server");
+  console.log("  zanecli [...args]         Zane first-party CLI/TUI");
+  console.log("  zanecode [...args]        Alias for zanecli");
+  console.log("  zaneapp [...args]         Zane App desktop UI");
+  console.log("  zaneupdate               Refresh artemisiahub ModelSquare models");
+  console.log("  zanecc [...args]          Claude Code through ZaneLLM");
+  console.log("  zanegpt | zanecodex       Codex CLI through ZaneLLM");
+  console.log("  zanegrok | zanexai        Grok Build CLI through ZaneLLM");
+  console.log("  zanegrokcli               Claude-Code style Grok run through ZaneLLM");
+  console.log("  zaneoc | zaneopencode     Compatible coding CLI through ZaneLLM");
+  console.log("  zanea | zaneaider         Aider through ZaneLLM");
+  console.log("  zanecontinue | zanecn     Continue CLI through ZaneLLM");
+  console.log("  zaneh | zanehermes        Hermes through ZaneLLM isolated profile");
+  console.log("  zanegoose [...args]       Goose through ZaneLLM, when installed");
+  console.log("");
+  console.log("Aliases:");
+  console.log("  zane chat [...args]");
+  console.log("  zane cc|claude [...args]");
+  console.log("  zane cli|code [...args]");
+  console.log("  zane app [...args]");
+  console.log("  zane gpt|codex [...args]");
+  console.log("  zane grok|xai [...args]");
+  console.log("  zane grokcli [...args]");
+  console.log("  zane oc|opencode [...args]");
+  console.log("  zane a|aider [...args]");
+  console.log("  zane continue|cn [...args]");
+  console.log("  zane h|hermes [...args]");
+  console.log("  zane goose [...args]");
+}
+
+async function main() {
+  const invoked = path.basename(process.argv[1] || "zane");
+  const args = process.argv.slice(2);
+
+  if (invoked === "zanei") {
+    install(args);
+    return;
+  }
+
+  if (invoked === "zaned" || invoked === "zanedisable") {
+    restore(args);
+    return;
+  }
+
+  if (invoked === "zaneupdate") {
+    await updateModelCatalog(args);
+    return;
+  }
+
+  if (launcherByCommand[invoked]) {
+    switch (invoked) {
+      case "zanechat":
+        await launchZaneChat(args);
+        return;
+      case "zanecc":
+        launchClaude(args);
+        return;
+      case "zanecli":
+        await launchzanecode(args, "zanecli");
+        return;
+      case "zanecode":
+        await launchzanecode(args, "zanecode");
+        return;
+      case "zaneapp":
+        await launchZaneApp(args);
+        return;
+      case "zanegpt":
+      case "zanecodex":
+        await launchCodex(args);
+        return;
+      case "zanegrok":
+      case "zanexai":
+        await launchGrok(args);
+        return;
+      case "zanegrokcli":
+        await launchGrokCli(args);
+        return;
+      case "zaneoc":
+      case "zaneopencode":
+        await launchCompatCli(args);
+        return;
+      case "zanea":
+      case "zaneaider":
+        launchAider(args);
+        return;
+      case "zanecontinue":
+      case "zanecn":
+        await launchContinue(args);
+        return;
+      case "zaneh":
+      case "zanehermes":
+        launchHermes(args);
+        return;
+      case "zanegoose":
+        launchGoose(args);
+        return;
+      case "zanegemini":
+        unsupportedGemini();
+        return;
+      case "zanecursor":
+        unsupportedCursor();
+        return;
+    }
+  }
+
+  const command = args.shift();
+  switch (command) {
+    case undefined:
+    case "":
+    case "help":
+    case "--help":
+    case "-h":
+      help();
+      break;
+    case "install":
+    case "i":
+      install(args);
+      break;
+    case "setup":
+    case "bootstrap":
+      await setup(args);
+      break;
+    case "update":
+    case "refresh":
+    case "sync":
+      await updateModelCatalog(args);
+      break;
+    case "chat":
+    case "zanechat":
+      await launchZaneChat(args);
+      break;
+    case "restore":
+    case "disable":
+    case "d":
+      restore(args);
+      break;
+    case "delete":
+    case "del":
+    case "rm":
+      restore(["--remove-manager", ...args]);
+      break;
+    case "apps":
+    case "endpoints":
+      apps();
+      break;
+    case "status":
+      status();
+      break;
+    case "usage":
+    case "useage":
+      await usage(args);
+      break;
+    case "models":
+      await models(args);
+      break;
+    case "use":
+    case "model":
+    case "m":
+      await useModel(args);
+      break;
+    case "doctor":
+      await doctor();
+      break;
+    case "cc":
+    case "claude":
+      launchClaude(args);
+      break;
+    case "cli":
+    case "zanecli":
+      await launchzanecode(args, "zanecli");
+      break;
+    case "code":
+    case "zanecode":
+      await launchzanecode(args, "zanecode");
+      break;
+    case "app":
+    case "zaneapp":
+      await launchZaneApp(args);
+      break;
+    case "codex":
+    case "gpt":
+      await launchCodex(args);
+      break;
+    case "grok":
+    case "xai":
+      await launchGrok(args);
+      break;
+    case "grokcli":
+      await launchGrokCli(args);
+      break;
+    case "opencode":
+    case "oc":
+      await launchCompatCli(args);
+      break;
+    case "aider":
+    case "a":
+      launchAider(args);
+      break;
+    case "continue":
+    case "cn":
+      await launchContinue(args);
+      break;
+    case "hermes":
+    case "h":
+      launchHermes(args);
+      break;
+    case "goose":
+      launchGoose(args);
+      break;
+    case "gemini":
+      unsupportedGemini();
+      break;
+    case "cursor":
+      unsupportedCursor();
+      break;
+    default:
+      fail(`unknown command '${command}'. Run 'zane --help'.`);
+  }
+}
+
+main().catch((error) => fail(error?.message || String(error)));

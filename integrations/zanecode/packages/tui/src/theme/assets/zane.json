@@ -1,0 +1,237 @@
+{
+  "$schema": "https://zanellm.local/theme.json",
+  "defs": {
+    "matte0": "#050505",
+    "matte1": "#0b0b0b",
+    "matte2": "#111111",
+    "matte3": "#181818",
+    "matte4": "#222222",
+    "matte5": "#2d2d2d",
+    "matte6": "#3a3a3a",
+    "matte7": "#5c5c5c",
+    "matte8": "#8a8a8a",
+    "matte9": "#c7c7c7",
+    "white0": "#f7f7f2",
+    "white1": "#ffffff",
+    "light0": "#ffffff",
+    "light1": "#f6f6f1",
+    "light2": "#eeeeea",
+    "light3": "#deded8",
+    "light4": "#c9c9c1",
+    "light5": "#a8a8a0",
+    "light6": "#7a7a74",
+    "light7": "#4a4a46",
+    "light8": "#252523"
+  },
+  "theme": {
+    "primary": {
+      "dark": "white1",
+      "light": "light8"
+    },
+    "secondary": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "accent": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "error": {
+      "dark": "white1",
+      "light": "light8"
+    },
+    "warning": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "success": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "info": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "text": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "textMuted": {
+      "dark": "matte8",
+      "light": "light6"
+    },
+    "selectedListItemText": {
+      "dark": "matte0",
+      "light": "light0"
+    },
+    "background": {
+      "dark": "matte0",
+      "light": "light0"
+    },
+    "backgroundPanel": {
+      "dark": "matte1",
+      "light": "light1"
+    },
+    "backgroundElement": {
+      "dark": "matte2",
+      "light": "light2"
+    },
+    "backgroundMenu": {
+      "dark": "matte1",
+      "light": "light1"
+    },
+    "border": {
+      "dark": "matte5",
+      "light": "light4"
+    },
+    "borderActive": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "borderSubtle": {
+      "dark": "matte4",
+      "light": "light3"
+    },
+    "diffAdded": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "diffRemoved": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "diffContext": {
+      "dark": "matte8",
+      "light": "light6"
+    },
+    "diffHunkHeader": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "diffHighlightAdded": {
+      "dark": "white1",
+      "light": "light8"
+    },
+    "diffHighlightRemoved": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "diffAddedBg": {
+      "dark": "matte2",
+      "light": "light2"
+    },
+    "diffRemovedBg": {
+      "dark": "matte3",
+      "light": "light3"
+    },
+    "diffContextBg": {
+      "dark": "matte1",
+      "light": "light1"
+    },
+    "diffLineNumber": {
+      "dark": "matte7",
+      "light": "light6"
+    },
+    "diffAddedLineNumberBg": {
+      "dark": "matte2",
+      "light": "light2"
+    },
+    "diffRemovedLineNumberBg": {
+      "dark": "matte3",
+      "light": "light3"
+    },
+    "markdownText": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "markdownHeading": {
+      "dark": "white1",
+      "light": "light8"
+    },
+    "markdownLink": {
+      "dark": "white1",
+      "light": "light8"
+    },
+    "markdownLinkText": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "markdownCode": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "markdownBlockQuote": {
+      "dark": "matte8",
+      "light": "light6"
+    },
+    "markdownEmph": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "markdownStrong": {
+      "dark": "white1",
+      "light": "light8"
+    },
+    "markdownHorizontalRule": {
+      "dark": "matte6",
+      "light": "light4"
+    },
+    "markdownListItem": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "markdownListEnumeration": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "markdownImage": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "markdownImageText": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "markdownCodeBlock": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "syntaxComment": {
+      "dark": "matte8",
+      "light": "light6"
+    },
+    "syntaxKeyword": {
+      "dark": "white1",
+      "light": "light8"
+    },
+    "syntaxFunction": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "syntaxVariable": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "syntaxString": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "syntaxNumber": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "syntaxType": {
+      "dark": "white1",
+      "light": "light8"
+    },
+    "syntaxOperator": {
+      "dark": "matte9",
+      "light": "light7"
+    },
+    "syntaxPunctuation": {
+      "dark": "white0",
+      "light": "light8"
+    },
+    "thinkingOpacity": 0.58
+  }
+}

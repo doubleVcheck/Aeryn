@@ -1,0 +1,1435 @@
+@import "@opencode-ai/ui/styles/tailwind";
+@import "@opencode-ai/session-ui/styles";
+@import "@opencode-ai/ui/v2/styles/tailwind.css";
+@import "tw-animate-css";
+
+@font-face {
+  font-family: "JetBrainsMono Nerd Font Mono";
+  src: url("/assets/JetBrainsMonoNerdFontMono-Regular.woff2") format("woff2");
+  font-weight: normal;
+  font-style: normal;
+}
+
+@font-face {
+  font-family: "Inter";
+  src: url("/assets/Inter.ttf") format("truetype");
+  font-weight: 100 900;
+  font-style: normal;
+}
+
+:root,
+[data-color-scheme="dark"],
+[data-color-scheme="light"] {
+  color-scheme: dark;
+  --font-family-text: "Geist", "Geist Sans", "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --v2-font-family-sans: "Geist", "Geist Sans", "Inter", ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  --v2-background-bg-base: #050505;
+  --v2-background-bg-deep: #050505;
+  --v2-background-bg-layer-01: #0a0a0a;
+  --v2-background-bg-layer-02: #101010;
+  --v2-background-bg-layer-03: #171717;
+  --v2-background-bg-layer-04: #202020;
+  --v2-background-bg-inverse: #f7f7f2;
+  --v2-background-bg-contrast: #f7f7f2;
+  --v2-background-bg-button-neutral: #141414;
+  --v2-background-bg-accent: #f7f7f2;
+  --v2-text-text-base: #f7f7f2;
+  --v2-text-text-muted: #b7b7ae;
+  --v2-text-text-faint: #74746c;
+  --v2-text-text-inverse: #050505;
+  --v2-text-text-contrast: #050505;
+  --v2-text-text-accent: #ffffff;
+  --v2-text-text-accent-hover: #dcdcd4;
+  --v2-text-text-code-accent: #ffffff;
+  --v2-icon-icon-base: #f7f7f2;
+  --v2-icon-icon-muted: #96968e;
+  --v2-icon-icon-inverse: #050505;
+  --v2-icon-icon-contrast: #050505;
+  --v2-icon-icon-accent: #ffffff;
+  --v2-icon-icon-accent-hover: #dcdcd4;
+  --v2-border-border-muted: rgba(255, 255, 255, 0.08);
+  --v2-border-border-base: rgba(255, 255, 255, 0.12);
+  --v2-border-border-strong: rgba(255, 255, 255, 0.22);
+  --v2-border-border-inverse: #f7f7f2;
+  --v2-border-border-focus: #ffffff;
+  --v2-overlay-simple-overlay-hover: rgba(255, 255, 255, 0.06);
+  --v2-overlay-simple-overlay-pressed: rgba(255, 255, 255, 0.1);
+  --v2-overlay-simple-overlay-contrast-hover: rgba(0, 0, 0, 0.16);
+  --v2-overlay-simple-overlay-contrast-pressed: rgba(0, 0, 0, 0.28);
+  --v2-overlay-simple-overlay-scrim: rgba(0, 0, 0, 0.72);
+  --v2-overlay-gradient-depth-overlay-depth-top: rgba(5, 5, 5, 1);
+  --v2-overlay-gradient-depth-overlay-depth-bot: rgba(5, 5, 5, 0);
+  --v2-overlay-simple-tab-active-scrim: #05050500;
+  --v2-overlay-simple-tab-hover-scrim: #11111100;
+  --v2-overlay-simple-tab-scrim: #05050500;
+}
+
+html,
+body,
+#root {
+  background: #050505;
+  color: #f7f7f2;
+  font-family: var(--v2-font-family-sans);
+}
+
+@media (display-mode: standalone) {
+  /* WebKit excludes safe-area insets from dvh in installed apps. */
+  #root {
+    height: 100vh;
+  }
+}
+
+@layer components {
+  [data-component="getting-started"] {
+    container-type: inline-size;
+    container-name: getting-started;
+  }
+
+  [data-component="dropdown-menu-content"].desktop-app-menu,
+  [data-component="dropdown-menu-sub-content"].desktop-app-menu {
+    min-width: 160px;
+    padding: 2px;
+  }
+
+  [data-component="dropdown-menu-content"].desktop-app-menu {
+    width: 160px;
+  }
+
+  [data-component="dropdown-menu-sub-content"].desktop-app-menu {
+    width: max-content;
+    min-width: 240px;
+    max-width: min(320px, calc(100vw - 24px));
+  }
+
+  [data-component="dropdown-menu-content"].desktop-app-menu [data-slot="dropdown-menu-group-label"] {
+    display: flex;
+    align-items: center;
+    height: 28px;
+    padding: 0 12px;
+    font-size: var(--font-size-x-small);
+    font-weight: var(--font-weight-medium);
+    line-height: 1;
+    color: var(--text-weak);
+  }
+
+  [data-component="dropdown-menu-content"].desktop-app-menu [data-slot="dropdown-menu-item"],
+  [data-component="dropdown-menu-content"].desktop-app-menu [data-slot="dropdown-menu-sub-trigger"],
+  [data-component="dropdown-menu-sub-content"].desktop-app-menu [data-slot="dropdown-menu-item"],
+  [data-component="dropdown-menu-sub-content"].desktop-app-menu [data-slot="dropdown-menu-sub-trigger"] {
+    min-height: 28px;
+    padding: 0 12px;
+    gap: 8px;
+    font-weight: var(--font-weight-regular);
+    line-height: 1;
+  }
+
+  [data-component="dropdown-menu-content"].desktop-app-menu [data-slot="dropdown-menu-item-label"],
+  [data-component="dropdown-menu-sub-content"].desktop-app-menu [data-slot="dropdown-menu-item-label"] {
+    white-space: nowrap;
+  }
+
+  [data-slot="desktop-app-menu-keybind"] {
+    margin-left: auto;
+    color: var(--text-weak);
+    font-size: var(--font-size-x-small);
+    font-weight: var(--font-weight-regular);
+    white-space: nowrap;
+  }
+
+  [data-slot="desktop-app-menu-chevron"] {
+    display: flex;
+    margin-left: auto;
+    color: var(--icon-base);
+  }
+
+  [data-component="getting-started-actions"] {
+    display: flex;
+    flex-direction: column;
+    gap: 0.75rem; /* gap-3 */
+  }
+
+  [data-component="getting-started-actions"] > [data-component="button"] {
+    width: 100%;
+  }
+
+  .zane-app-dashboard {
+    flex-shrink: 0;
+    min-width: 0;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 10px;
+    background:
+      linear-gradient(180deg, rgba(255, 255, 255, 0.035), rgba(255, 255, 255, 0)),
+      var(--v2-background-bg-layer-01);
+    padding: 18px;
+  }
+
+  .zane-app-status-panel {
+    min-width: 0;
+    border: 1px solid var(--v2-border-border-muted);
+    border-radius: 8px;
+    background: var(--v2-background-bg-base);
+    padding: 14px;
+  }
+
+  .zane-desktop-home {
+    display: grid;
+    grid-template-columns: 376px minmax(0, 1fr);
+    align-self: stretch;
+    width: 100%;
+    height: 100%;
+    min-height: 0;
+    min-width: 0;
+    overflow: hidden;
+    background: #000;
+    color: #ededed;
+    font-family: var(--v2-font-family-sans);
+  }
+
+  .zane-desktop-sidebar {
+    display: flex;
+    min-height: 0;
+    min-width: 0;
+    flex-direction: column;
+    border-right: 1px solid rgba(255, 255, 255, 0.08);
+    background: #030303;
+  }
+
+  .zane-desktop-sidebar-nav {
+    display: flex;
+    flex-shrink: 0;
+    flex-direction: column;
+    gap: 20px;
+    padding: 22px 20px 0;
+  }
+
+  .zane-desktop-nav-row,
+  .zane-desktop-chat-row,
+  .zane-desktop-account-menu button,
+  .zane-desktop-project-picker,
+  .zane-desktop-toolbar-left button,
+  .zane-desktop-toolbar-right button,
+  .zane-desktop-popover button,
+  .zane-desktop-side-panel button,
+  .zane-desktop-reset-card button,
+  .zane-desktop-terminal-tabs button,
+  .zane-desktop-panel-controls button {
+    appearance: none;
+    border: 0;
+    background: transparent;
+    color: inherit;
+    font: inherit;
+  }
+
+  .zane-desktop-nav-row {
+    display: flex;
+    height: 22px;
+    min-width: 0;
+    align-items: center;
+    gap: 12px;
+    color: #f4f4f4;
+    font-size: 17px;
+    font-weight: 440;
+    line-height: 22px;
+    text-align: left;
+  }
+
+  .zane-desktop-nav-row [data-component="icon"] {
+    color: #d8d8d8;
+  }
+
+  .zane-desktop-nav-row:hover,
+  .zane-desktop-chat-row:hover,
+  .zane-desktop-account-menu button:hover {
+    color: #fff;
+  }
+
+  .zane-desktop-chat-list {
+    min-height: 0;
+    flex: 1;
+    overflow: hidden;
+    padding: 38px 20px 18px;
+  }
+
+  .zane-desktop-section-label {
+    margin-bottom: 16px;
+    color: #6f6f6f;
+    font-size: 16px;
+    line-height: 20px;
+  }
+
+  .zane-desktop-empty-line {
+    color: #777;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .zane-desktop-chat-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    width: 100%;
+    min-width: 0;
+    gap: 12px;
+    padding: 8px 4px;
+    color: #d8d8d8;
+    font-size: 16px;
+    line-height: 20px;
+    text-align: left;
+  }
+
+  .zane-desktop-chat-row span:first-child {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .zane-desktop-chat-row span:last-child {
+    color: #777;
+  }
+
+  .zane-desktop-account {
+    position: relative;
+    flex-shrink: 0;
+    padding: 18px 20px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .zane-desktop-account-button {
+    display: grid;
+    width: 100%;
+    min-width: 0;
+    grid-template-columns: 38px minmax(0, 1fr) 20px;
+    align-items: center;
+    gap: 12px;
+    border: 0;
+    background: transparent;
+    color: #ededed;
+    text-align: left;
+  }
+
+  .zane-desktop-avatar {
+    display: flex;
+    width: 34px;
+    height: 34px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #f7f7f2;
+    color: #050505;
+    font-size: 13px;
+    font-weight: 600;
+    line-height: 1;
+  }
+
+  .zane-desktop-account-name,
+  .zane-desktop-account-plan {
+    display: block;
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .zane-desktop-account-name {
+    font-size: 16px;
+    line-height: 20px;
+  }
+
+  .zane-desktop-account-plan {
+    color: #8a8a8a;
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .zane-desktop-account-menu {
+    position: absolute;
+    right: 12px;
+    bottom: 72px;
+    left: 10px;
+    z-index: 30;
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 12px;
+    background: #171717;
+    padding: 10px 6px;
+    box-shadow: none;
+  }
+
+  .zane-desktop-account-menu button {
+    display: grid;
+    min-width: 0;
+    grid-template-columns: 22px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    border-radius: 8px;
+    padding: 8px 10px;
+    color: #d5d5d5;
+    font-size: 15px;
+    line-height: 20px;
+    text-align: left;
+  }
+
+  .zane-desktop-account-menu button:hover {
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .zane-desktop-account-menu kbd {
+    color: #8c8c8c;
+    font-size: 12px;
+    font-family: inherit;
+  }
+
+  .zane-desktop-account-separator {
+    height: 1px;
+    margin: 6px 8px;
+    background: rgba(255, 255, 255, 0.09);
+  }
+
+  .zane-desktop-main {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    background: #000;
+  }
+
+  .zane-desktop-main-frame {
+    position: relative;
+    display: grid;
+    min-height: 0;
+    min-width: 0;
+    flex: 1;
+    grid-template-columns: minmax(0, 1fr);
+    overflow: hidden;
+    border-left: 1px solid rgba(255, 255, 255, 0.07);
+    border-top: 1px solid rgba(255, 255, 255, 0.07);
+  }
+
+  .zane-desktop-main[data-side-panel="open"] .zane-desktop-main-frame {
+    grid-template-columns: minmax(0, 1fr) 38%;
+  }
+
+  .zane-desktop-panel-controls {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    z-index: 10;
+    display: flex;
+    gap: 12px;
+  }
+
+  .zane-desktop-panel-controls button {
+    display: flex;
+    width: 26px;
+    height: 26px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 8px;
+    color: #8f8f8f;
+  }
+
+  .zane-desktop-panel-controls button:hover {
+    background: rgba(255, 255, 255, 0.08);
+    color: #ededed;
+  }
+
+  .zane-desktop-center {
+    display: flex;
+    min-width: 0;
+    min-height: 0;
+    flex-direction: column;
+    align-items: center;
+    justify-content: flex-start;
+    padding: clamp(180px, 28vh, 280px) 24px 24px;
+  }
+
+  .zane-desktop-center h1 {
+    margin: 0 0 58px;
+    color: #f4f4f4;
+    font-size: 34px;
+    font-weight: 440;
+    line-height: 1.18;
+    text-align: center;
+  }
+
+  .zane-desktop-composer-wrap {
+    position: relative;
+    width: min(910px, 100%);
+  }
+
+  .zane-desktop-composer {
+    overflow: hidden;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 19px;
+    background: #151515;
+    box-shadow: none;
+  }
+
+  .zane-desktop-composer textarea {
+    display: block;
+    width: 100%;
+    min-height: 82px;
+    resize: none;
+    border: 0;
+    outline: none;
+    background: transparent;
+    padding: 20px 16px 8px;
+    color: #ededed;
+    font-size: 16px;
+    line-height: 22px;
+  }
+
+  .zane-desktop-composer textarea::placeholder {
+    color: #6e6e6e;
+  }
+
+  .zane-desktop-composer-toolbar {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 0 10px 10px;
+  }
+
+  .zane-desktop-toolbar-left,
+  .zane-desktop-toolbar-right {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    gap: 8px;
+  }
+
+  .zane-desktop-toolbar-left button,
+  .zane-desktop-toolbar-right button {
+    display: flex;
+    min-width: 0;
+    height: 34px;
+    align-items: center;
+    justify-content: center;
+    gap: 7px;
+    border-radius: 999px;
+    color: #8d8d8d;
+    padding: 0 8px;
+    font-size: 15px;
+    line-height: 20px;
+  }
+
+  .zane-desktop-toolbar-left button:hover,
+  .zane-desktop-toolbar-right button:hover {
+    background: rgba(255, 255, 255, 0.06);
+    color: #e8e8e8;
+  }
+
+  .zane-desktop-toolbar-right .zane-desktop-model-button {
+    max-width: 260px;
+    justify-content: flex-start;
+  }
+
+  .zane-desktop-model-button span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .zane-desktop-model-button span + span {
+    flex: 0 0 auto;
+    color: #777;
+  }
+
+  .zane-desktop-toolbar-right .zane-desktop-send {
+    width: 38px;
+    height: 38px;
+    flex: 0 0 auto;
+    border-radius: 999px;
+    background: #a7a7a7;
+    color: #050505;
+    padding: 0;
+  }
+
+  .zane-desktop-toolbar-right .zane-desktop-send:hover {
+    background: #f4f4f4;
+    color: #050505;
+  }
+
+  .zane-desktop-toolbar-right .zane-desktop-send:disabled {
+    cursor: not-allowed;
+    opacity: 0.42;
+  }
+
+  .zane-desktop-project-picker {
+    display: flex;
+    height: 54px;
+    width: 100%;
+    min-width: 0;
+    align-items: center;
+    gap: 10px;
+    border-radius: 0 0 18px 18px;
+    background: #060606;
+    padding: 0 18px;
+    color: #f4f4f4;
+    font-size: 16px;
+    font-weight: 560;
+    line-height: 22px;
+    text-align: left;
+  }
+
+  .zane-desktop-project-picker span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .zane-desktop-popover {
+    position: absolute;
+    z-index: 25;
+    display: flex;
+    width: 310px;
+    max-height: min(430px, calc(100vh - 220px));
+    flex-direction: column;
+    overflow: auto;
+    border: 1px solid rgba(255, 255, 255, 0.11);
+    border-radius: 13px;
+    background: #1c1c1c;
+    padding: 8px;
+    color: #ededed;
+    box-shadow: none;
+  }
+
+  .zane-desktop-popover-left {
+    left: 52px;
+    top: 122px;
+  }
+
+  .zane-desktop-popover-right {
+    right: 58px;
+    top: 122px;
+  }
+
+  .zane-desktop-popover-wide {
+    width: min(560px, calc(100vw - 48px));
+    max-height: min(610px, calc(100vh - 180px));
+  }
+
+  .zane-desktop-popover-title {
+    padding: 8px 10px 10px;
+    color: #f4f4f4;
+    font-size: 14px;
+    font-weight: 650;
+    line-height: 18px;
+  }
+
+  .zane-desktop-popover button {
+    display: flex;
+    min-width: 0;
+    align-items: center;
+    justify-content: space-between;
+    gap: 14px;
+    border-radius: 8px;
+    padding: 9px 10px;
+    color: #d7d7d7;
+    font-size: 15px;
+    line-height: 20px;
+    text-align: left;
+  }
+
+  .zane-desktop-popover button:hover,
+  .zane-desktop-popover button[data-selected] {
+    background: rgba(255, 255, 255, 0.08);
+    color: #fff;
+  }
+
+  .zane-desktop-popover button > span:first-child {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+  }
+
+  .zane-desktop-popover small,
+  .zane-desktop-popover button > span:last-child {
+    color: #8d8d8d;
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .zane-desktop-popover-divider {
+    height: 1px;
+    margin: 7px 4px;
+    background: rgba(255, 255, 255, 0.08);
+  }
+
+  .zane-desktop-model-search {
+    min-height: 38px;
+    margin: 0 4px 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 9px;
+    background: #0b0b0b;
+    color: #f4f4f4;
+    padding: 0 12px;
+    font: inherit;
+    font-size: 15px;
+    line-height: 20px;
+    outline: none;
+  }
+
+  .zane-desktop-model-search:focus {
+    border-color: rgba(255, 255, 255, 0.28);
+  }
+
+  .zane-desktop-model-search::placeholder {
+    color: #777;
+  }
+
+  .zane-desktop-model-list {
+    display: flex;
+    max-height: min(430px, calc(100vh - 310px));
+    min-height: 0;
+    flex-direction: column;
+    overflow: auto;
+    padding-right: 2px;
+  }
+
+  .zane-desktop-popover-empty {
+    padding: 10px;
+    color: #888;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .zane-desktop-connect-grid {
+    display: grid;
+    width: min(826px, 100%);
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 14px;
+    margin-top: 40px;
+  }
+
+  .zane-desktop-connect-card {
+    position: relative;
+    min-height: 142px;
+    min-width: 0;
+    border: 1px solid rgba(255, 255, 255, 0.08);
+    border-radius: 13px;
+    background: #030303;
+    padding: 18px 16px;
+    color: #f2f2f2;
+    text-align: left;
+  }
+
+  .zane-desktop-connect-card[data-connected] {
+    color: rgba(242, 242, 242, 0.35);
+  }
+
+  .zane-desktop-connect-card div {
+    margin-top: 18px;
+    font-size: 17px;
+    font-weight: 560;
+    line-height: 22px;
+  }
+
+  .zane-desktop-connect-card p {
+    margin: 8px 0 0;
+    color: #7e7e7e;
+    font-size: 16px;
+    line-height: 22px;
+  }
+
+  .zane-desktop-connect-badge {
+    display: flex;
+    width: 22px;
+    height: 22px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 6px;
+    background: #e9e9e9;
+    color: #050505;
+    font-size: 12px;
+    font-weight: 700;
+  }
+
+  .zane-desktop-connect-check {
+    position: absolute;
+    top: 18px;
+    right: 18px;
+    display: flex;
+    width: 20px;
+    height: 20px;
+    align-items: center;
+    justify-content: center;
+    border-radius: 999px;
+    background: #f7f7f2;
+    color: #050505;
+  }
+
+  .zane-desktop-reset-card {
+    display: grid;
+    width: min(910px, 100%);
+    min-width: 0;
+    grid-template-columns: 42px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 18px;
+    margin-top: 70px;
+    border: 1px solid rgba(255, 255, 255, 0.12);
+    border-radius: 18px;
+    background: #101010;
+    padding: 18px 22px;
+    color: #f0f0f0;
+  }
+
+  .zane-desktop-reset-card p {
+    margin: 5px 0 0;
+    color: #9b9b9b;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .zane-desktop-reset-card button {
+    min-width: 110px;
+    border-radius: 999px;
+    background: #f1f1f1;
+    color: #090909;
+    padding: 9px 17px;
+    font-size: 15px;
+    line-height: 20px;
+  }
+
+  .zane-desktop-side-panel {
+    display: flex;
+    min-width: 0;
+    flex-direction: column;
+    justify-content: center;
+    gap: 26px;
+    border-left: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 44px 56px;
+    color: #f2f2f2;
+  }
+
+  .zane-desktop-side-panel button {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 12px;
+    color: #f2f2f2;
+    font-size: 16px;
+    line-height: 22px;
+    text-align: left;
+  }
+
+  .zane-desktop-side-panel kbd {
+    border-radius: 6px;
+    background: #171717;
+    padding: 1px 6px;
+    color: #a6a6a6;
+    font-family: inherit;
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .zane-desktop-terminal-panel {
+    flex-shrink: 0;
+    min-height: 210px;
+    border-top: 1px solid rgba(255, 255, 255, 0.08);
+    background: #000;
+  }
+
+  .zane-desktop-terminal-tabs {
+    display: flex;
+    height: 42px;
+    align-items: center;
+    justify-content: space-between;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+    padding: 0 18px;
+    color: #d8d8d8;
+  }
+
+  .zane-desktop-terminal-tabs > div,
+  .zane-desktop-terminal-tabs button {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+  }
+
+  .zane-desktop-terminal-line {
+    padding: 18px;
+    color: #d8d8d8;
+    font-family: "JetBrainsMono Nerd Font Mono", ui-monospace, monospace;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .zane-desktop-terminal-line span {
+    color: #dcdcd4;
+  }
+
+  .zane-desktop-terminal-line b {
+    color: #f7f7f2;
+    font-weight: 500;
+  }
+
+  .zane-usage-page {
+    display: flex;
+    min-height: 100%;
+    min-width: 0;
+    flex-direction: column;
+    gap: 22px;
+    overflow: auto;
+    background: #050505;
+    color: #f7f7f2;
+    padding: 42px;
+    font-family: var(--v2-font-family-sans);
+  }
+
+  .zane-usage-header {
+    display: grid;
+    grid-template-columns: 36px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 16px;
+  }
+
+  .zane-usage-header button {
+    display: inline-flex;
+    min-width: 0;
+    height: 36px;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    border: 1px solid rgba(255, 255, 255, 0.1);
+    border-radius: 8px;
+    background: #0d0d0d;
+    color: #f7f7f2;
+    padding: 0 12px;
+    font: inherit;
+  }
+
+  .zane-usage-header button:first-child {
+    padding: 0;
+  }
+
+  .zane-usage-header button:hover {
+    background: #171717;
+  }
+
+  .zane-usage-header p {
+    margin: 0 0 4px;
+    color: #8d8d8d;
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .zane-usage-header h1 {
+    margin: 0;
+    color: #f7f7f2;
+    font-size: 28px;
+    font-weight: 520;
+    line-height: 34px;
+  }
+
+  .zane-usage-summary {
+    display: grid;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+    gap: 12px;
+  }
+
+  .zane-usage-summary div,
+  .zane-usage-meter,
+  .zane-usage-table,
+  .zane-usage-state {
+    border: 1px solid rgba(255, 255, 255, 0.09);
+    border-radius: 10px;
+    background: #0d0d0d;
+  }
+
+  .zane-usage-summary div {
+    min-width: 0;
+    padding: 18px;
+  }
+
+  .zane-usage-summary span,
+  .zane-usage-table-header small,
+  .zane-usage-meter p,
+  .zane-usage-state span {
+    color: #8d8d8d;
+    font-size: 13px;
+    line-height: 18px;
+  }
+
+  .zane-usage-summary strong {
+    display: block;
+    margin-top: 9px;
+    overflow: hidden;
+    color: #f7f7f2;
+    font-size: 26px;
+    font-weight: 520;
+    line-height: 32px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .zane-usage-meter {
+    padding: 18px;
+  }
+
+  .zane-usage-meter > div {
+    height: 10px;
+    overflow: hidden;
+    border-radius: 999px;
+    background: #1a1a1a;
+  }
+
+  .zane-usage-meter span {
+    display: block;
+    height: 100%;
+    border-radius: inherit;
+    background: #f7f7f2;
+  }
+
+  .zane-usage-meter p {
+    margin: 12px 0 0;
+  }
+
+  .zane-usage-table {
+    overflow: hidden;
+  }
+
+  .zane-usage-table-header,
+  .zane-usage-row {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) 140px 140px;
+    gap: 12px;
+    align-items: center;
+  }
+
+  .zane-usage-table-header {
+    padding: 16px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+  }
+
+  .zane-usage-table-header span {
+    font-size: 15px;
+    font-weight: 560;
+    line-height: 20px;
+  }
+
+  .zane-usage-table-header small {
+    grid-column: 2 / -1;
+    justify-self: end;
+  }
+
+  .zane-usage-row {
+    padding: 12px 18px;
+    border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+    color: #dcdcd4;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .zane-usage-row:last-child {
+    border-bottom: 0;
+  }
+
+  .zane-usage-row span {
+    min-width: 0;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+  }
+
+  .zane-usage-row span:not(:first-child) {
+    color: #a8a8a0;
+    text-align: right;
+  }
+
+  .zane-usage-empty,
+  .zane-usage-state {
+    padding: 18px;
+    color: #8d8d8d;
+    font-size: 14px;
+    line-height: 20px;
+  }
+
+  .zane-usage-state {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+  }
+
+  .zane-usage-state b {
+    color: #f7f7f2;
+    font-size: 17px;
+    line-height: 22px;
+  }
+
+  @media (max-width: 900px) {
+    .zane-usage-page {
+      padding: 24px;
+    }
+
+    .zane-usage-summary {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+    }
+  }
+
+  @media (max-width: 640px) {
+    .zane-usage-header {
+      grid-template-columns: 36px minmax(0, 1fr);
+    }
+
+    .zane-usage-header button:last-child {
+      grid-column: 1 / -1;
+      width: fit-content;
+    }
+
+    .zane-usage-summary {
+      grid-template-columns: 1fr;
+    }
+
+    .zane-usage-table-header,
+    .zane-usage-row {
+      grid-template-columns: minmax(0, 1fr) 90px;
+    }
+
+    .zane-usage-table-header small,
+    .zane-usage-row span:last-child {
+      display: none;
+    }
+  }
+
+  .zane-desktop-titlebar-home {
+    display: flex;
+    height: 100%;
+    flex: 1;
+    align-items: center;
+    gap: 18px;
+    overflow: hidden;
+    padding: 0 14px;
+    color: #7f7f7f;
+  }
+
+  .zane-desktop-titlebar-button {
+    display: flex;
+    width: 28px;
+    height: 28px;
+    flex: 0 0 auto;
+    align-items: center;
+    justify-content: center;
+    border: 0;
+    border-radius: 8px;
+    background: transparent;
+    color: #8e8e8e;
+  }
+
+  .zane-desktop-titlebar-button:hover,
+  .zane-desktop-titlebar-button[data-active] {
+    background: rgba(255, 255, 255, 0.08);
+    color: #e6e6e6;
+  }
+
+  .zane-desktop-titlebar-arrow {
+    border: 0;
+    background: transparent;
+    color: #707070;
+    padding: 0;
+  }
+
+  .zane-desktop-titlebar-arrow:not(:disabled):hover {
+    color: #ededed;
+  }
+
+  .zane-desktop-titlebar-arrow:disabled {
+    opacity: 0.45;
+  }
+
+  .zane-desktop-titlebar-menu {
+    display: flex;
+    height: 100%;
+    align-items: center;
+    gap: 34px;
+    padding-left: 10px;
+    font-size: 16px;
+    line-height: 20px;
+  }
+
+  .zane-desktop-titlebar-menu button {
+    border: 0;
+    background: transparent;
+    color: #858585;
+    font: inherit;
+    padding: 0;
+  }
+
+  .zane-desktop-titlebar-menu button:hover {
+    color: #ededed;
+  }
+
+  @media (max-width: 980px) {
+    .zane-desktop-home {
+      grid-template-columns: 72px minmax(0, 1fr);
+    }
+
+    .zane-desktop-sidebar-nav {
+      align-items: center;
+      padding-right: 12px;
+      padding-left: 12px;
+    }
+
+    .zane-desktop-nav-row span,
+    .zane-desktop-chat-list,
+    .zane-desktop-account-button > span:not(.zane-desktop-avatar),
+    .zane-desktop-account-button > [data-component="icon"] {
+      display: none;
+    }
+
+    .zane-desktop-account {
+      padding-right: 18px;
+      padding-left: 18px;
+    }
+  }
+
+  @media (max-width: 760px) {
+    .zane-desktop-home {
+      grid-template-columns: 1fr;
+    }
+
+    .zane-desktop-sidebar {
+      display: none;
+    }
+
+    .zane-desktop-main-frame,
+    .zane-desktop-main[data-side-panel="open"] .zane-desktop-main-frame {
+      grid-template-columns: minmax(0, 1fr);
+    }
+
+    .zane-desktop-side-panel {
+      display: none;
+    }
+
+    .zane-desktop-center {
+      justify-content: flex-start;
+      padding-top: 64px;
+    }
+
+    .zane-desktop-center h1 {
+      margin-bottom: 34px;
+      font-size: 28px;
+    }
+
+    .zane-desktop-composer-toolbar {
+      flex-direction: column;
+      align-items: stretch;
+    }
+
+    .zane-desktop-toolbar-left,
+    .zane-desktop-toolbar-right {
+      justify-content: space-between;
+    }
+
+    .zane-desktop-connect-grid {
+      grid-template-columns: 1fr;
+    }
+
+    .zane-desktop-reset-card {
+      grid-template-columns: 32px minmax(0, 1fr);
+    }
+
+    .zane-desktop-reset-card button {
+      grid-column: 1 / -1;
+    }
+  }
+
+  @container getting-started (min-width: 17rem) {
+    [data-component="getting-started-actions"] {
+      flex-direction: row;
+      align-items: center;
+    }
+
+    [data-component="getting-started-actions"] > [data-component="button"] {
+      width: auto;
+    }
+  }
+
+  .home-session-group-header::before {
+    content: "";
+    position: absolute;
+    top: -12px;
+    left: 0;
+    width: 100%;
+    height: 12px;
+    background: var(--v2-background-bg-base);
+  }
+
+  .home-session-group-header::after {
+    content: "";
+    position: absolute;
+    top: 100%;
+    left: 0;
+    width: 100%;
+    height: 16px;
+    pointer-events: none;
+    background: linear-gradient(
+      180deg,
+      var(--v2-background-bg-base) 0%,
+      color-mix(in srgb, var(--v2-background-bg-base) 92.0456%, transparent) 7.93%,
+      color-mix(in srgb, var(--v2-background-bg-base) 84.9947%, transparent) 14.14%,
+      color-mix(in srgb, var(--v2-background-bg-base) 78.6813%, transparent) 19%,
+      color-mix(in srgb, var(--v2-background-bg-base) 72.9394%, transparent) 22.85%,
+      color-mix(in srgb, var(--v2-background-bg-base) 67.6028%, transparent) 26.05%,
+      color-mix(in srgb, var(--v2-background-bg-base) 62.5055%, transparent) 28.95%,
+      color-mix(in srgb, var(--v2-background-bg-base) 57.4815%, transparent) 31.91%,
+      color-mix(in srgb, var(--v2-background-bg-base) 52.3647%, transparent) 35.27%,
+      color-mix(in srgb, var(--v2-background-bg-base) 46.989%, transparent) 39.4%,
+      color-mix(in srgb, var(--v2-background-bg-base) 41.1884%, transparent) 44.65%,
+      color-mix(in srgb, var(--v2-background-bg-base) 34.7969%, transparent) 51.36%,
+      color-mix(in srgb, var(--v2-background-bg-base) 27.6484%, transparent) 59.9%,
+      color-mix(in srgb, var(--v2-background-bg-base) 19.5767%, transparent) 70.62%,
+      color-mix(in srgb, var(--v2-background-bg-base) 10.416%, transparent) 83.87%,
+      transparent 100%
+    );
+  }
+
+  [data-slot="titlebar-update-loader"] {
+    display: block;
+    flex-shrink: 0;
+    margin: 1px;
+    width: 12px;
+    height: 12px;
+    border-radius: 9999px;
+    border: 2px solid color-mix(in srgb, var(--v2-icon-icon-accent) 30%, transparent);
+    border-top-color: var(--v2-icon-icon-accent);
+    animation: titlebar-update-loader-spin 0.67s linear infinite;
+    transform-origin: 50% 50%;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    [data-slot="titlebar-update-loader"] {
+      animation: none;
+    }
+  }
+
+  @keyframes titlebar-update-loader-spin {
+    to {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes home-projects-fade-top {
+    from {
+      visibility: hidden;
+    }
+    to {
+      visibility: visible;
+    }
+  }
+
+  @keyframes home-projects-fade-bottom {
+    from {
+      visibility: visible;
+    }
+    to {
+      visibility: hidden;
+    }
+  }
+
+  [data-slot="home-projects-scroll"] {
+    timeline-scope: --home-projects-scroll;
+  }
+
+  [data-slot="model-selector-scroll"] {
+    timeline-scope: --model-selector-scroll;
+  }
+
+  [data-slot="manage-models-scroll"] {
+    timeline-scope: --manage-models-scroll;
+  }
+
+  [data-slot="home-projects-scroll"]::before,
+  [data-slot="home-projects-scroll"]::after,
+  [data-slot="model-selector-scroll"]::before,
+  [data-slot="model-selector-scroll"]::after,
+  [data-slot="manage-models-scroll"]::before {
+    content: "";
+    position: absolute;
+    left: 0;
+    right: 0;
+    z-index: 10;
+    height: 16px;
+    pointer-events: none;
+    visibility: hidden;
+  }
+
+  [data-slot="home-projects-scroll"]::before {
+    top: 0;
+    background: linear-gradient(to bottom, var(--v2-background-bg-base), transparent);
+  }
+
+  [data-slot="model-selector-scroll"]::before {
+    top: 0;
+    background: linear-gradient(to bottom, var(--v2-background-bg-layer-01), transparent);
+  }
+
+  [data-slot="manage-models-scroll"]::before {
+    top: 0;
+    background: linear-gradient(to bottom, var(--v2-background-bg-base), transparent);
+  }
+
+  [data-slot="home-projects-scroll"]::after {
+    bottom: 0;
+    background: linear-gradient(to top, var(--v2-background-bg-base), transparent);
+  }
+
+  [data-slot="model-selector-scroll"]::after {
+    bottom: 0;
+    background: linear-gradient(to top, var(--v2-background-bg-layer-01), transparent);
+  }
+
+  @supports (animation-timeline: --home-projects-scroll) and (timeline-scope: --home-projects-scroll) {
+    [data-slot="home-projects-scroll"] .scroll-view__viewport {
+      scroll-timeline: --home-projects-scroll y;
+    }
+
+    [data-slot="home-projects-scroll"]::before {
+      animation: home-projects-fade-top linear both;
+      animation-timeline: --home-projects-scroll;
+      animation-range: 0 0.1px;
+    }
+
+    [data-slot="home-projects-scroll"]::after {
+      animation: home-projects-fade-bottom linear both;
+      animation-timeline: --home-projects-scroll;
+      animation-range: calc(100% - 1.1px) calc(100% - 1px);
+    }
+  }
+
+  @supports (animation-timeline: --model-selector-scroll) and (timeline-scope: --model-selector-scroll) {
+    [data-slot="model-selector-scroll"] .scroll-view__viewport {
+      scroll-timeline: --model-selector-scroll y;
+    }
+
+    [data-slot="model-selector-scroll"]::before {
+      animation: home-projects-fade-top linear both;
+      animation-timeline: --model-selector-scroll;
+      animation-range: 0 0.1px;
+    }
+
+    [data-slot="model-selector-scroll"]::after {
+      animation: home-projects-fade-bottom linear both;
+      animation-timeline: --model-selector-scroll;
+      animation-range: calc(100% - 1.1px) calc(100% - 1px);
+    }
+  }
+
+  @supports (animation-timeline: --manage-models-scroll) and (timeline-scope: --manage-models-scroll) {
+    [data-slot="manage-models-scroll"] .settings-v2-panel {
+      scroll-timeline: --manage-models-scroll y;
+    }
+
+    [data-slot="manage-models-scroll"]::before {
+      animation: home-projects-fade-top linear both;
+      animation-timeline: --manage-models-scroll;
+      animation-range: 0 0.1px;
+    }
+  }
+}

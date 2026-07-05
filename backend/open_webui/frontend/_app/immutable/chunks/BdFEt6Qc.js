@@ -1,0 +1,2 @@
+const _="ZaneLLM",t="",e=`${t}/api/v1`,a=`${t}/ollama`,s=`${t}/openai`,A=`${t}/api/v1/audio`,o=`${t}/api/v1/images`,i=`${t}/api/v1/retrieval`,n="0.10.2",E="dev-build",I={file_context:!0,vision:!0,file_upload:!0,web_search:!0,image_generation:!0,code_interpreter:!0,terminal:!0,citations:!0,status_updates:!0,usage:void 0,builtin_tools:!0},r=1e3;export{_ as A,I as D,o as I,s as O,r as P,i as R,n as W,t as a,e as b,A as c,a as d,E as e};
+//# sourceMappingURL=BdFEt6Qc.js.map

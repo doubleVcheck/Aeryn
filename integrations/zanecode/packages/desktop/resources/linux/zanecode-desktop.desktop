@@ -1,0 +1,10 @@
+[Desktop Entry]
+Name=zaneapp
+Exec=/opt/zanecode/ai.zanellm.zanecode.desktop %U
+Terminal=false
+Type=Application
+Icon=ai.zanellm.zanecode.desktop
+StartupWMClass=ai.zanellm.zanecode.desktop
+NoDisplay=true
+Comment=ZaneLLM-powered AI coding agent
+Categories=Development;

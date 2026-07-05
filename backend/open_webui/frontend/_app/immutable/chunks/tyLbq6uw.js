@@ -1,0 +1,2 @@
+import{ah as o,O as _,ai as g,aj as m,M as a,ak as p,al as i,T as l,S as r,V as v,am as E}from"./CCEZMT5x.js";function b(n,d){let t=null,f=a;var s;if(a){t=v;for(var e=E(document.head);e!==null&&(e.nodeType!==p||e.data!==n);)e=i(e);if(e===null)l(!1);else{var y=i(e);e.remove(),r(y)}}a||(s=document.head.appendChild(o()));try{_(()=>{var u=g(()=>d(s));u.f|=m})}finally{f&&(l(!0),r(t))}}export{b as h};
+//# sourceMappingURL=tyLbq6uw.js.map

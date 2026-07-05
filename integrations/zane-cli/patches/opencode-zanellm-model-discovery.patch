@@ -1,0 +1,189 @@
+diff --git a/packages/opencode/src/provider/provider.ts b/packages/opencode/src/provider/provider.ts
+index c979fc4..30052bb 100644
+--- a/packages/opencode/src/provider/provider.ts
++++ b/packages/opencode/src/provider/provider.ts
+@@ -1274,6 +1274,164 @@ export function fromModelsDevProvider(provider: ModelsDev.Provider): Info {
+   }
+ }
+ 
++type ConfigProvider = NonNullable<ConfigV1.Info["provider"]>[string]
++
++function configProviderNpm(configProvider: ConfigProvider, provider: Info, modelsDevProvider?: ModelsDev.Provider) {
++  return (
++    configProvider.npm ??
++    Object.values(provider.models).find((model) => model.api.npm)?.api.npm ??
++    modelsDevProvider?.npm ??
++    "@ai-sdk/openai-compatible"
++  )
++}
++
++function configProviderBaseURL(configProvider: ConfigProvider, provider: Info) {
++  const value =
++    configProvider.options?.baseURL ??
++    provider.options?.baseURL ??
++    configProvider.api ??
++    Object.values(provider.models).find((model) => model.api.url)?.api.url
++  if (typeof value !== "string" || value.trim() === "") return
++  return value.replace(/\/+$/, "")
++}
++
++function configProviderApiKey(configProvider: ConfigProvider, provider: Info) {
++  const value = configProvider.options?.apiKey ?? provider.options?.apiKey ?? provider.key
++  if (typeof value !== "string" || value.trim() === "" || value.includes("{env:")) return
++  return value
++}
++
++function discoveredModelID(input: unknown) {
++  if (typeof input === "string") return cleanDiscoveredModelID(input)
++  if (!isRecord(input)) return
++  const value = input.id ?? input.name
++  return typeof value === "string" && value.trim() !== "" ? cleanDiscoveredModelID(value) : undefined
++}
++
++function cleanDiscoveredModelID(value: string) {
++  return value
++    .replace(/\x1b\[[0-9;]*m/g, "")
++    .replace(/\[[0-9;]*m\]/g, "")
++    .trim()
++}
++
++function inferDiscoveredCapabilities(id: string): Model["capabilities"] {
++  const value = id.toLowerCase()
++  const attachment = ["claude", "gpt", "o1", "o3", "o4", "gemini", "grok", "glm", "qwen"].some((item) =>
++    value.includes(item),
++  )
++  const reasoning = [
++    "reason",
++    "thinking",
++    "r1",
++    "deepseek",
++    "claude",
++    "gpt-5",
++    "o1",
++    "o3",
++    "o4",
++    "gemini",
++    "grok",
++    "glm",
++    "qwen",
++    "kimi",
++  ].some((item) => value.includes(item))
++  return {
++    temperature: true,
++    reasoning,
++    attachment,
++    toolcall: true,
++    input: {
++      text: true,
++      audio: false,
++      image: attachment,
++      video: false,
++      pdf: attachment,
++    },
++    output: {
++      text: true,
++      audio: false,
++      image: false,
++      video: false,
++      pdf: false,
++    },
++    interleaved: value.includes("deepseek") ? { field: "reasoning_content" } : false,
++  }
++}
++
++function discoveredOpenAICompatibleModel(providerID: ProviderV2.ID, id: string, baseURL: string): Model {
++  const model: Model = {
++    id: ModelV2.ID.make(id),
++    providerID,
++    name: id,
++    family: "",
++    api: {
++      id,
++      url: baseURL,
++      npm: "@ai-sdk/openai-compatible",
++    },
++    status: "active",
++    headers: {},
++    options: {},
++    cost: {
++      input: 0,
++      output: 0,
++      cache: {
++        read: 0,
++        write: 0,
++      },
++    },
++    limit: {
++      context: 200_000,
++      output: ProviderTransform.OUTPUT_TOKEN_MAX,
++    },
++    capabilities: inferDiscoveredCapabilities(id),
++    release_date: "",
++    variants: {},
++  }
++  return {
++    ...model,
++    variants: mapValues(ProviderTransform.variants(model), (value) => value),
++  }
++}
++
++async function discoverOpenAICompatibleModels(
++  providerID: ProviderV2.ID,
++  provider: Info,
++  configProvider: ConfigProvider,
++) {
++  const baseURL = configProviderBaseURL(configProvider, provider)
++  if (!baseURL) return {}
++  const apiKey = configProviderApiKey(configProvider, provider)
++  const response = await fetch(`${baseURL}/models`, {
++    headers: apiKey
++      ? {
++          authorization: `Bearer ${apiKey}`,
++          "x-api-key": apiKey,
++        }
++      : undefined,
++  })
++  if (!response.ok) return {}
++  const body = (await response.json()) as unknown
++  const list = Array.isArray(body)
++    ? body
++    : isRecord(body) && Array.isArray(body.data)
++      ? body.data
++      : isRecord(body) && Array.isArray(body.models)
++        ? body.models
++        : []
++  const ids = Array.from(
++    new Set(
++      list
++        .map(discoveredModelID)
++        .filter((id): id is string => id !== undefined)
++        .map((id) => id.trim())
++        .filter(Boolean),
++    ),
++  ).sort((a, b) => a.localeCompare(b))
++  return Object.fromEntries(ids.map((id) => [id, discoveredOpenAICompatibleModel(providerID, id, baseURL)]))
++}
++
+ function modelSuggestions(provider: Info | undefined, modelID: ModelV2.ID, enableExperimentalModels: boolean) {
+   const available = provider
+     ? Object.keys(provider.models).filter((id) => {
+@@ -1489,6 +1647,19 @@ const layer = Layer.effect(
+           database[providerID] = parsed
+         }
+ 
++        for (const [id, configProvider] of configProviders) {
++          const providerID = ProviderV2.ID.make(id)
++          const provider = database[providerID]
++          if (!provider) continue
++          if (configProviderNpm(configProvider, provider, modelsDev[id]) !== "@ai-sdk/openai-compatible") continue
++          const discovered = yield* Effect.promise(() =>
++            discoverOpenAICompatibleModels(providerID, provider, configProvider),
++          ).pipe(Effect.catch(() => Effect.succeed({})))
++          for (const [modelID, model] of Object.entries(discovered)) {
++            if (!provider.models[modelID]) provider.models[modelID] = model
++          }
++        }
++
+         // load env
+         const envs = yield* env.all()
+         for (const [id, provider] of Object.entries(database)) {
