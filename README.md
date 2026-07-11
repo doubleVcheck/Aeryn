@@ -1,4 +1,4 @@
-<img width="200" height="200" alt="aeryn-logo" src="https://github.com/user-attachments/assets/e4799284-1586-4eca-a520-11039c09f869" />
+<img width="500" height="540" alt="aeryn-logo-Photoroom" src="https://github.com/user-attachments/assets/d9bfe5d9-a4c6-4ec9-bf98-e654f54f47ff" />
 
 # ZaneCode
 
