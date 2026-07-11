@@ -1,3 +1,5 @@
+<img width="200" height="200" alt="aeryn-logo" src="https://github.com/user-attachments/assets/e4799284-1586-4eca-a520-11039c09f869" />
+
 # ZaneCode
 
 ZaneCode is the Zane AI workspace. It gives you one account-backed setup for chat, desktop, terminal, and coding CLIs.
