@@ -637,14 +637,19 @@
 					chatCompletionEventHandler(data, message, event.chat_id);
 				} else if (type === 'chat:tasks:cancel') {
 					dismissContextCompactionToast();
+					// Always unlock input; cancel can arrive for a sibling message id.
+					taskIds = null;
 					if (event.message_id === history.currentId) {
-						taskIds = null;
 						// Set all response messages to done
-						for (const messageId of history.messages[message.parentId].childrenIds) {
-							history.messages[messageId].done = true;
+						if (message?.parentId && history.messages[message.parentId]) {
+							for (const messageId of history.messages[message.parentId].childrenIds) {
+								history.messages[messageId].done = true;
+							}
+						} else if (message) {
+							message.done = true;
 						}
 						await processNextInQueue($chatId);
-					} else {
+					} else if (message) {
 						message.done = true;
 					}
 				} else if (type === 'chat:message:delta' || type === 'message') {
@@ -668,6 +673,13 @@
 					}, 100);
 				} else if (type === 'chat:message:error') {
 					message.error = data.error;
+					// Errors must mark the turn complete, otherwise MessageInput
+					// stays blocked forever (done != true).
+					message.done = true;
+					taskIds = null;
+					if (typeof processNextInQueue === 'function') {
+						await processNextInQueue($chatId);
+					}
 				} else if (type === 'chat:message:follow_ups') {
 					message.followUps = data.follow_ups;
 

@@ -221,6 +221,7 @@ from open_webui.utils.chat import (
 )
 from open_webui.utils.embeddings import generate_embeddings
 from open_webui.utils.logger import start_logger
+from open_webui.utils.media_chat import handle_media_chat, is_media_chat_model
 from open_webui.utils.middleware import (
     background_tasks_handler,
     build_chat_response_context,
@@ -1083,8 +1084,25 @@ async def chat_completion(
     try:
         model_info = None
         if not model_item.get('direct', False):
+            if not request.app.state.MODELS or model_id not in request.app.state.MODELS:
+                # Refresh once so newly exposed media models (image/video) are available.
+                await get_all_models(request, user=user)
+
             if model_id not in request.app.state.MODELS:
-                raise Exception('Model not found')
+                # Media models may still be absent from chat catalog depending on
+                # provider discovery shape; synthesize a minimal model entry so the
+                # chat media bridge can serve them for client testing.
+                if is_media_chat_model(model_id):
+                    request.app.state.MODELS[model_id] = {
+                        'id': model_id,
+                        'name': model_id,
+                        'object': 'model',
+                        'owned_by': 'openai',
+                        'connection_type': 'external',
+                        'urlIdx': 0,
+                    }
+                else:
+                    raise Exception('Model not found')
 
             model = request.app.state.MODELS[model_id]
             model_info = await Models.get_model_by_id(model_id)
@@ -1092,7 +1110,9 @@ async def chat_completion(
             # Check if user has access to the model
             if not BYPASS_MODEL_ACCESS_CONTROL and (user.role != 'admin' or not BYPASS_ADMIN_ACCESS_CONTROL):
                 try:
-                    await check_model_access(user, model)
+                    # Provider-discovered media models may not exist in local Models DB.
+                    if not (model_info is None and is_media_chat_model(model_id)):
+                        await check_model_access(user, model)
                 except Exception as e:
                     raise e
         else:
@@ -1533,6 +1553,16 @@ async def chat_completion(
 
     async def process_chat(request, form_data, user, metadata, model, tasks=None):
         try:
+            # Media models are bridged to their image/video endpoints while keeping
+            # the normal chat model-picker experience.
+            model_id = str((form_data or {}).get('model') or (model or {}).get('id') or '')
+            if is_media_chat_model(model_id):
+                response = await handle_media_chat(request, form_data, user, metadata)
+                ctx = await build_chat_response_context(
+                    request, form_data, user, model, metadata, tasks, events=None
+                )
+                return await process_chat_response(response, ctx)
+
             form_data, metadata, events = await process_chat_payload(request, form_data, user, metadata, model)
 
             response = await chat_completion_handler(request, form_data, user)
@@ -1583,6 +1613,8 @@ async def chat_completion(
                             {
                                 'parentId': metadata.get('user_message_id', None),
                                 'error': {'content': error_detail},
+                                # Unlock the chat UI: MessageInput treats done!=true as "still generating".
+                                'done': True,
                             },
                         )
 
@@ -1591,12 +1623,14 @@ async def chat_completion(
                         await event_emitter(
                             {
                                 'type': 'chat:message:error',
-                                'data': {'error': {'content': error_detail}},
+                                'data': {'error': {'content': error_detail}, 'done': True},
                             }
                         )
                         await event_emitter(
                             {'type': 'chat:tasks:cancel'},
                         )
+                        # Explicitly clear active-task state even if cancel event is missed.
+                        await event_emitter({'type': 'chat:active', 'data': {'active': False}})
 
                 except Exception:
                     pass

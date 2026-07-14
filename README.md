@@ -44,9 +44,12 @@ Your artemisiahub access token is not committed to the repo. Local credentials l
 ```bash
 git clone https://github.com/zephyrzane/zanecode.git
 cd zanecode
-zane install
-zanecode
+./integrations/zane-cli/bin/zane install
+zane setup --upstream-base https://artemisiahub.com/v1
+zanechat
 ```
+
+`zane setup` prompts for the current user's artemisiahub access token and creates or reuses that user's model API token. The public build defaults to Artemisia Hub models (`https://artemisiahub.com/v1`, default chat model `gpt-5.5`, pinned `gpt-5.5` / `gpt-image-2` / `seedance-2.0`) but does not include a default admin API key. Do not copy an admin installation's `backend/open_webui/data`, `.webui_secret_key`, launcher environment, or `~/.config/zane-cli` directory into a user installation.
 
 If `zane` is not available yet from your shell, run the local installer directly:
 

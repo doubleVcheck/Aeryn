@@ -24,7 +24,12 @@ from open_webui.config import (
     IMAGE_URL_RESPONSE_MODELS_REGEX_PATTERN,
 )
 from open_webui.constants import ERROR_MESSAGES
-from open_webui.env import AIOHTTP_CLIENT_ALLOW_REDIRECTS, AIOHTTP_CLIENT_SESSION_SSL, ENABLE_FORWARD_USER_INFO_HEADERS
+from open_webui.env import (
+    AIOHTTP_CLIENT_ALLOW_REDIRECTS,
+    AIOHTTP_CLIENT_SESSION_SSL,
+    AIOHTTP_CLIENT_TIMEOUT,
+    ENABLE_FORWARD_USER_INFO_HEADERS,
+)
 from open_webui.events import EVENTS, publish_event
 from open_webui.internal.db import get_async_session
 from open_webui.models.chats import Chats
@@ -108,6 +113,29 @@ async def get_config_values(key_map: dict[str, str]) -> dict:
 
 async def get_image_config() -> SimpleNamespace:
     return SimpleNamespace(**await get_config_values(IMAGE_CONFIG_KEYS))
+
+
+def _friendly_upstream_error(status_code: int, body: str | None, reason: str | None = None) -> str:
+    text = (body or '').strip()
+    if text.startswith('<') or 'Bad gateway' in text or 'Gateway time-out' in text or 'Service Temporarily Unavailable' in text:
+        if status_code in (502, 503, 504):
+            return f'Upstream image provider temporarily unavailable (HTTP {status_code}). Retry in a few seconds.'
+        return f'Upstream image provider error (HTTP {status_code}).'
+    try:
+        data = json.loads(text)
+        if isinstance(data, dict):
+            err = data.get('error') or data.get('detail') or data.get('message')
+            if isinstance(err, dict):
+                msg = err.get('message') or err.get('detail') or str(err)
+            else:
+                msg = err
+            if msg:
+                return str(msg)[:300]
+    except Exception:
+        pass
+    if text:
+        return text[:300]
+    return reason or f'Upstream image provider error (HTTP {status_code}).'
 
 
 def config_updates(data: dict, key_map: dict[str, str]) -> dict:
@@ -647,13 +675,21 @@ async def image_generations(
             }
 
             session = await get_session()
+            image_timeout = aiohttp.ClientTimeout(total=max(AIOHTTP_CLIENT_TIMEOUT or 300, 600))
             async with session.post(
                 url=url,
                 json=data,
                 headers=headers,
                 ssl=AIOHTTP_CLIENT_SESSION_SSL,
+                timeout=image_timeout,
             ) as r:
-                r.raise_for_status()
+                if r.status >= 400:
+                    detail = await r.text()
+                    log.error('OpenAI image generation failed (%s): %s', r.status, detail[:500])
+                    raise HTTPException(
+                        status_code=400,
+                        detail=_friendly_upstream_error(r.status, detail, r.reason),
+                    )
                 res = await r.json(content_type=None)
 
             images = []
@@ -662,7 +698,7 @@ async def image_generations(
                 if image_url := image.get('url', None):
                     image_data, content_type = await get_image_data(
                         image_url,
-                        {k: v for k, v in headers.items() if k != 'Content-Type'},
+                        {k: v for k, v in headers.items() if k.lower() != 'content-type'},
                     )
                 else:
                     image_data, content_type = await get_image_data(image['b64_json'])
@@ -827,6 +863,8 @@ async def image_generations(
                 )
                 images.append({'url': url})
             return images
+    except HTTPException:
+        raise
     except Exception as e:
         error = e
         if isinstance(e, aiohttp.ClientResponseError):

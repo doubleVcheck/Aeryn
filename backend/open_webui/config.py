@@ -308,6 +308,70 @@ if _ollama_api_configs:
 
 ENABLE_OPENAI_API = os.getenv('ENABLE_OPENAI_API', 'True').lower() == 'true'
 
+# Aeryn/ZaneCode default upstream is Artemisia Hub (OpenAI-compatible).
+# Keys stay empty until the current user runs `zane setup` with their own token.
+DEFAULT_ARTEMISIA_BASE_URL = 'https://artemisiahub.com/v1'
+DEFAULT_ARTEMISIA_MODEL = 'gpt-5.5'
+# Static catalog used when no API key is configured yet so the model picker is
+# not empty for first-run / public installs. `zane setup` leaves model_ids empty
+# so a real key can discover the live ModelSquare list.
+DEFAULT_ARTEMISIA_MODEL_IDS = [
+    'gpt-5.5',
+    'gpt-5.4',
+    'gpt-5.4-mini',
+    'gpt-5.6',
+    'gpt-5.6-sol',
+    'gpt-5.6-luna',
+    'gpt-5.6-terra',
+    'gpt-5.5-openai-compact',
+    'gpt-5.3-codex',
+    'gpt-image-2',
+    'seedance-2.0',
+    'claude-sonnet-4-6',
+    'claude-sonnet-4-6-thinking',
+    'claude-sonnet-4-5-20250929',
+    'claude-sonnet-5',
+    'claude-opus-4-8',
+    'claude-opus-4-7',
+    'claude-opus-4-7-thinking',
+    'claude-opus-4-6',
+    'claude-opus-4-5-20251101',
+    'claude-haiku-4-5-20251001',
+    'claude-fable-5',
+    'gemini-3.5-flash',
+    'gemini-3.1-pro',
+    'gemini-3.1-pro-preview',
+    'gemini-3.1-pro-preview-low',
+    'gemini-3.1-pro-thinking',
+    'gemini-3.1-flash-lite',
+    'gemini-3.1-flash-lite-preview',
+    'gemini-3-flash-preview',
+    'gemini-2.5-pro',
+    'gemini-2.5-flash',
+    'gemini-2.5-flash-nothinking',
+    'grok-4.5',
+    'grok-4.3',
+    'grok-4.20-0309-reasoning',
+    'grok-4.20-0309-non-reasoning',
+    'grok-4.20-multi-agent-0309',
+    'grok-3-mini',
+    'grok-3-mini-fast',
+    'grok-build-0.1',
+    'grok-composer-2.5-fast',
+    'DeepSeek-V4-Pro',
+    'DeepSeek-V4-Flash',
+]
+DEFAULT_ARTEMISIA_PROVIDER_CONFIG = {
+    'enable': True,
+    'connection_type': 'external',
+    'provider': 'artemisiahub',
+    'tags': ['artemisiahub', 'zanecode', 'default'],
+    'prefix_id': '',
+    'model_ids': list(DEFAULT_ARTEMISIA_MODEL_IDS),
+    'api_type': 'chat_completions',
+    'auth_type': 'bearer',
+}
+
 
 OPENAI_API_KEY = os.getenv('OPENAI_API_KEY', '')
 OPENAI_API_BASE_URL = os.getenv('OPENAI_API_BASE_URL', '')
@@ -317,7 +381,7 @@ GEMINI_API_BASE_URL = os.getenv('GEMINI_API_BASE_URL', '')
 
 
 if OPENAI_API_BASE_URL == '':
-    OPENAI_API_BASE_URL = 'https://api.openai.com/v1'
+    OPENAI_API_BASE_URL = DEFAULT_ARTEMISIA_BASE_URL
 else:
     if OPENAI_API_BASE_URL.endswith('/'):
         OPENAI_API_BASE_URL = OPENAI_API_BASE_URL[:-1]
@@ -332,7 +396,7 @@ OPENAI_API_BASE_URLS = os.getenv('OPENAI_API_BASE_URLS', '')
 OPENAI_API_BASE_URLS = OPENAI_API_BASE_URLS if OPENAI_API_BASE_URLS != '' else OPENAI_API_BASE_URL
 
 OPENAI_API_BASE_URLS = [
-    url.strip() if url != '' else 'https://api.openai.com/v1' for url in OPENAI_API_BASE_URLS.split(';')
+    url.strip() if url != '' else DEFAULT_ARTEMISIA_BASE_URL for url in OPENAI_API_BASE_URLS.split(';')
 ]
 OPENAI_API_BASE_URLS = OPENAI_API_BASE_URLS
 
@@ -348,13 +412,14 @@ if _openai_api_configs:
     except (json.JSONDecodeError, TypeError):
         log.warning('OPENAI_API_CONFIGS is not valid JSON, ignoring')
 
-# Get the actual OpenAI API key based on the base URL
-OPENAI_API_KEY = ''
-try:
-    OPENAI_API_KEY = OPENAI_API_KEYS[OPENAI_API_BASE_URLS.index('https://api.openai.com/v1')]
-except Exception:
-    pass
-OPENAI_API_BASE_URL = 'https://api.openai.com/v1'
+# Seed one Artemisia provider slot when no configs were supplied via env.
+if not OPENAI_API_CONFIGS:
+    OPENAI_API_CONFIGS = {str(idx): dict(DEFAULT_ARTEMISIA_PROVIDER_CONFIG) for idx in range(len(OPENAI_API_BASE_URLS))}
+
+# Primary OpenAI-compatible connection is the first configured base URL.
+# Image/audio/RAG defaults inherit this value unless explicitly overridden.
+OPENAI_API_KEY = OPENAI_API_KEYS[0] if OPENAI_API_KEYS else ''
+OPENAI_API_BASE_URL = OPENAI_API_BASE_URLS[0] if OPENAI_API_BASE_URLS else DEFAULT_ARTEMISIA_BASE_URL
 
 
 ####################################
@@ -1303,7 +1368,7 @@ ENABLE_IMAGE_GENERATION = os.getenv('ENABLE_IMAGE_GENERATION', '').lower() == 't
 
 IMAGE_GENERATION_ENGINE = os.getenv('IMAGE_GENERATION_ENGINE', 'openai')
 
-IMAGE_GENERATION_MODEL = os.getenv('IMAGE_GENERATION_MODEL', '')
+IMAGE_GENERATION_MODEL = os.getenv('IMAGE_GENERATION_MODEL', 'gpt-image-2')
 
 # Regex pattern for models that support IMAGE_SIZE = "auto".
 IMAGE_AUTO_SIZE_MODELS_REGEX_PATTERN = os.getenv('IMAGE_AUTO_SIZE_MODELS_REGEX_PATTERN', '^gpt-image')
@@ -1622,9 +1687,12 @@ ENABLE_PASSWORD_AUTH = os.getenv('ENABLE_PASSWORD_AUTH', 'True').lower() == 'tru
 
 DEFAULT_LOCALE = os.getenv('DEFAULT_LOCALE', '')
 
-DEFAULT_MODELS = os.getenv('DEFAULT_MODELS', None)
+DEFAULT_MODELS = os.getenv('DEFAULT_MODELS', DEFAULT_ARTEMISIA_MODEL)
 
-DEFAULT_PINNED_MODELS = os.getenv('DEFAULT_PINNED_MODELS', None)
+DEFAULT_PINNED_MODELS = os.getenv(
+    'DEFAULT_PINNED_MODELS',
+    f'{DEFAULT_ARTEMISIA_MODEL},gpt-image-2,seedance-2.0',
+)
 
 try:
     default_prompt_suggestions = json.loads(os.getenv('DEFAULT_PROMPT_SUGGESTIONS', '[]'))
